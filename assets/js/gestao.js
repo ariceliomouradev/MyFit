@@ -309,6 +309,7 @@ async function companyExerciseForm(ex) {
 const configStaff = () => html`
   <div class="page-title"><h1>Mais</h1></div>
   ${raw(extraMais())}
+  ${raw(supportCard())}
   <div class="card"><h3>Meu perfil</h3><form data-form="profile" style="margin-top:10px">
     <label class="f">Nome<input class="in" name="name" value="${S.user.name}" maxlength="80" required></label>
     ${raw(waField('whatsapp', S.user.role === 'super' ? 'WhatsApp (opcional)' : 'WhatsApp (contato com a academia)', S.user.whatsapp || '', { req: S.user.role !== 'super' }))}

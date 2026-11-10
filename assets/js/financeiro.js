@@ -316,6 +316,11 @@ function extraMais() {
   if (r === 'super') return html`${raw(link('#/gestor/usuarios', 'users', 'Todos os usuários', 'Contatos e acessos'))}${raw(link('#/exercicios', 'dumb', 'Exercícios', 'Lista geral do app'))}${raw(link('#/financeiro', 'wallet', 'Financeiro das empresas', 'Receita, comissões e planos'))}<div id="pb-box"></div><div id="mail-box"></div><div id="outbox-box"></div>`;
   return '';
 }
+/** Cartão de suporte no "Mais" (todos os perfis), quando configurado. */
+function supportCard() {
+  const sp = S.support; if (!sp) return '';
+  return html`<div class="card"><h3>Precisa de ajuda?</h3><p class="small muted" style="margin:4px 0 10px">Fale com o suporte do aplicativo.</p>${raw(supportButtons('Olá! Preciso de ajuda no ' + appName() + '.', 'Ajuda no ' + appName()))}</div>`;
+}
 async function mountMais() {
   if (S.user.role === 'super' && $('#pb-box')) {
     try {
@@ -340,13 +345,24 @@ async function loadOutbox() {
  *  Ações e formulários
  * ===================================================================== */
 const copyText = async (v, msg = 'Copiado!') => { try { await navigator.clipboard.writeText(v); toast(msg); } catch { toast('Selecione e copie manualmente.', true); } };
-/** Botões que aparecem quando o login é bloqueado por excesso de tentativas: saídas rápidas, sem esperar. */
+/** Botões de contato com o suporte (WhatsApp e e-mail), quando o config.php tem 'support'. */
+function supportButtons(whatsText, mailSubject) {
+  const sp = S.support; if (!sp) return '';
+  return (sp.whatsapp ? '<a class="btn block" style="margin-bottom:10px" target="_blank" rel="noopener" href="https://wa.me/' + esc(sp.whatsapp) + '?text=' + encodeURIComponent(whatsText) + '">' + ICON.whats + ' Falar com o suporte pelo WhatsApp</a>' : '')
+    + (sp.email ? '<a class="btn block" style="margin-bottom:10px" href="mailto:' + esc(sp.email) + '?subject=' + encodeURIComponent(mailSubject) + '">Falar com o suporte por e-mail</a>' : '');
+}
+const appName = () => S.brand?.app_name || 'aplicativo';
+/** Login bloqueado por excesso de tentativas: saídas rápidas, sem esperar. */
 function throttleActions() {
-  const sp = S.support, msg = encodeURIComponent('Olá! Não consigo entrar no ' + (S.brand?.app_name || 'aplicativo') + '. Pode me ajudar a redefinir a senha?');
   return '<button type="button" class="btn primary block" style="margin-bottom:10px" data-act="auth-toggle" data-mode="forgot">Esqueci minha senha (link por e-mail)</button>'
-    + (sp?.whatsapp ? '<a class="btn block" style="margin-bottom:10px" target="_blank" rel="noopener" href="https://wa.me/' + esc(sp.whatsapp) + '?text=' + msg + '">Falar com o suporte pelo WhatsApp</a>' : '')
-    + (sp?.email ? '<a class="btn block" style="margin-bottom:10px" href="mailto:' + esc(sp.email) + '?subject=' + encodeURIComponent('Ajuda para entrar') + '">Falar com o suporte por e-mail</a>' : '')
+    + supportButtons('Olá! Não consigo entrar no ' + appName() + '. Pode me ajudar a redefinir a senha?', 'Ajuda para entrar')
     + '<p class="small muted center" style="margin:0 0 12px">Ou peça ao administrador da sua academia ou ao seu personal para <b>liberar o seu acesso agora</b>.</p>';
+}
+/** Assinatura vencida, acesso bloqueado ou cadastro ainda pendente: fala com a academia (ou com o suporte da plataforma). */
+function supportActions(code) {
+  const why = code === 'pending' ? 'meu cadastro ainda está aguardando aprovação' : 'o meu acesso está bloqueado ou vencido';
+  return supportButtons('Olá! No ' + appName() + ', ' + why + '. Pode me ajudar?', code === 'pending' ? 'Cadastro aguardando aprovação' : 'Acesso bloqueado ou vencido')
+    + '<p class="small muted center" style="margin:0 0 12px">Ou fale com o seu personal ou com a sua academia.</p>';
 }
 
 Object.assign(acts, {

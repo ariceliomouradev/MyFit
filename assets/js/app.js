@@ -734,6 +734,7 @@ route(/^#\/config$/, () => S.user.role === 'aluno' ? configAluno() : configStaff
 const configAluno = () => html`
   <div class="page-title"><h1>Mais</h1></div>
   ${raw(extraMais())}
+  ${raw(supportCard())}
   <div class="card"><h3>Perfil</h3>
     <form data-form="profile" style="margin-top:10px">
       <label class="f">Nome<input class="in" name="name" value="${S.user.name}" maxlength="80" required></label>
@@ -958,7 +959,7 @@ document.addEventListener('submit', async e => {
     await forms[f.dataset.form](Object.fromEntries(new FormData(f)), f);
   } catch (err) {
     const box = $('#auth-err');
-    if (box && /^(login|register|forgot|reset|renew)/.test(f.dataset.form)) box.innerHTML = `<div class="err" role="alert">${esc(err.message)}</div>${S.renew && f.dataset.form === 'login' ? '<button type="button" class="btn primary block" style="margin-bottom:12px" data-act="renew-open">Renovar a minha assinatura agora</button>' : ''}${err.code === 'throttled' ? throttleActions() : ''}`; else toast(err.message, true);
+    if (box && /^(login|register|forgot|reset|renew)/.test(f.dataset.form)) box.innerHTML = `<div class="err" role="alert">${esc(err.message)}</div>${S.renew && f.dataset.form === 'login' ? '<button type="button" class="btn primary block" style="margin-bottom:12px" data-act="renew-open">Renovar a minha assinatura agora</button>' : ''}${err.code === 'throttled' ? throttleActions() : /^(expired|expired_renewable|pending)$/.test(err.code || '') ? supportActions(err.code) : ''}`; else toast(err.message, true);
   } finally { btn && (btn.disabled = false); }
 });
 
