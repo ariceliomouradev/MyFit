@@ -88,14 +88,14 @@ function authViewV3(mode, token = '') {
     <div class="card hl center"><div class="eyebrow">Cadastro enviado</div><h2 style="margin:6px 0 8px">Falta pouco!</h2><p class="muted" style="margin:0">${S.pendingMsg}</p></div>
     <button class="btn block" data-act="auth-toggle" data-mode="login">Voltar para o login</button></div>`;
   if (mode === 'forgot') return html`<div class="auth">
-    ${raw(authHead('Esqueceu a senha?', 'Digite o e-mail do seu cadastro. Enviamos o link para o seu WhatsApp; se não der, para o e-mail.'))}
+    ${raw(authHead('Esqueceu a senha?', 'Digite o e-mail do seu cadastro. Enviamos o link para ele (confira também a caixa de spam).'))}
     <div id="auth-err"></div>
-    <form data-form="forgot" novalidate>${raw(emailField('email', 'E-mail cadastrado'))}<button class="btn primary block" type="submit">Enviar pelo WhatsApp</button></form>
+    <form data-form="forgot" novalidate>${raw(emailField('email', 'E-mail cadastrado'))}<button class="btn primary block" type="submit">Enviar link por e-mail</button></form>
     <p class="center small" style="margin-top:18px"><a href="#" data-act="auth-toggle" data-mode="login">Voltar para o login</a></p>${raw(authFoot())}</div>`;
   if (mode === 'forgot-sent') return html`<div class="auth">
     ${raw(authHead('Link enviado', ''))}
     <div class="card hl center"><p style="margin:0">${S.forgotMsg}</p></div>
-    <button class="btn block" data-act="forgot-email">Não chegou? Enviar por e-mail</button>
+    <button class="btn block" data-act="forgot-email">Não chegou? Reenviar o link</button>
     <button class="btn primary block" data-act="auth-toggle" data-mode="login" style="margin-top:10px">Voltar para o login</button>${raw(authFoot())}</div>`;
   if (mode === 'reset') return html`<div class="auth">
     ${raw(authHead('Criar nova senha', 'Escolha uma senha forte. Este link só funciona uma vez.'))}
@@ -112,7 +112,7 @@ function authViewV3(mode, token = '') {
         <label class="f">Nome completo<input class="in" name="name" autocomplete="name" required maxlength="80"></label>`) : ''}
       ${raw(emailField('email'))}
       ${reg ? raw(waField()) : ''}
-      ${reg ? raw(html`<div class="infobox">${raw(ICON.whats)}<span>Usamos o WhatsApp para enviar a redefinição de senha, caso você precise. Use um número que você acessa.</span></div>`) : ''}
+      ${reg ? raw(html`<div class="infobox">${raw(ICON.whats)}<span>Usamos o WhatsApp para a sua academia ou o seu personal falarem com você. A redefinição de senha chega pelo e-mail cadastrado.</span></div>`) : ''}
       ${raw(pwField('password', 'Senha', { auto: reg ? 'new-password' : 'current-password', rules: reg }))}
       ${reg ? raw(html`<div class="refbox"><div class="row" style="gap:8px"><span class="ic">${raw(ICON.gift)}</span><b>Foi indicado por alguém?</b></div><p class="small muted" style="margin:4px 0 8px">Digite o código de quem indicou e ganhe desconto na primeira renovação.</p>
         <label class="f" style="margin:0">Código de indicação (opcional)<input class="in" name="referral_code" autocomplete="off" autocapitalize="characters" maxlength="16" placeholder="IND-XXXXXX"></label></div>`) : raw(html`<p class="right small" style="margin:-6px 0 14px"><a href="#" data-act="auth-toggle" data-mode="forgot">Esqueci minha senha</a></p>`)}
@@ -313,25 +313,26 @@ function extraMais() {
   const link = (h, ic, t, s) => html`<a class="card linkcard" href="${h}"><span class="ic">${raw(ICON[ic])}</span><span class="grow"><b>${t}</b><span class="small muted" style="display:block">${s}</span></span><span class="chev">›</span></a>`;
   if (r === 'aluno') return html`${raw(link('#/assinatura', 'wallet', 'Minha assinatura', S.user.access_until ? 'Acesso até ' + fmtD(S.user.access_until) + '. Renovar com PIX.' : 'Renovar com PIX'))}${raw(link('#/indicar', 'gift', 'Indicar amigos', 'Ganhe desconto na renovação'))}`;
   if (r === 'admin') return html`${raw(link('#/marca', 'palette', 'Marca da empresa', 'Logo, nome, slogan e cores'))}<div id="outbox-box"></div>`;
-  if (r === 'super') return html`${raw(link('#/gestor/usuarios', 'users', 'Todos os usuários', 'Contatos e acessos'))}${raw(link('#/exercicios', 'dumb', 'Exercícios', 'Lista geral do app'))}${raw(link('#/financeiro', 'wallet', 'Financeiro das empresas', 'Receita, comissões e planos'))}<div id="pb-box"></div><div id="outbox-box"></div>`;
+  if (r === 'super') return html`${raw(link('#/gestor/usuarios', 'users', 'Todos os usuários', 'Contatos e acessos'))}${raw(link('#/exercicios', 'dumb', 'Exercícios', 'Lista geral do app'))}${raw(link('#/financeiro', 'wallet', 'Financeiro das empresas', 'Receita, comissões e planos'))}<div id="pb-box"></div><div id="mail-box"></div><div id="outbox-box"></div>`;
   return '';
 }
 async function mountMais() {
   if (S.user.role === 'super' && $('#pb-box')) {
     try {
       const s = await api('GET', 'pagbank/status');
+      $('#mail-box').innerHTML = html`<div class="card"><h3>E-mail</h3><ul class="list sum"><li><span class="muted">Envio</span><b>${s.mail === 'smtp' ? 'SMTP (recomendado)' : s.mail === 'desligado' ? 'desligado' : 'mail() da hospedagem (pode não entregar)'}</b></li></ul><button class="btn block" data-act="mail-test" style="margin-top:10px">Enviar e-mail de teste para mim</button></div>`;
       $('#pb-box').innerHTML = html`<div class="card"><h3>PagBank (PIX)</h3><ul class="list sum"><li><span class="muted">Conexão</span><b>${s.configured ? 'configurada (' + (s.env === 'production' ? 'produção' : 'testes/sandbox') + ')' : 'sem token no config.php'}</b></li><li><span class="muted">Endereço do app (app_url)</span><b>${s.app_url || 'não definido'}</b></li><li><span class="muted">Aviso automático (webhook)</span><b>${s.https ? 'ativo' : 'precisa de https'}</b></li><li><span class="muted">PIX pagos / aguardando</span><b>${s.paid} / ${s.pending}</b></li></ul>
         <button class="btn block" data-act="pb-test" style="margin-top:10px">Testar conexão com o PagBank</button></div>`;
     } catch { /* sem painel */ }
   }
   if (S.user.role !== 'aluno' && S.user.role !== 'personal' && $('#outbox-box')) loadOutbox();
 }
-/** Mensagens que o app não conseguiu enviar sozinho: o administrador manda pelo WhatsApp com um toque. */
+/** Links de senha que o e-mail não entregou: o administrador copia o link e manda à pessoa. */
 async function loadOutbox() {
   try {
     const { items } = await api('GET', `manage/outbox${S.user.role === 'super' && typeof TEAM !== 'undefined' && TEAM?.cid ? '?company_id=' + TEAM.cid : ''}`);
     const box = $('#outbox-box'); if (!box) return;
-    box.innerHTML = items.length ? html`<div class="card"><h3>Fila de envio (${items.length})</h3><p class="hint">O app não conseguiu enviar estes links de senha sozinho. Toque para mandar pelo WhatsApp.</p><ul class="list">${items.map(i => raw(html`<li><div class="grow"><div class="t">${i.name}</div><div class="s">link de nova senha</div></div>${i.whatsapp ? raw(html`<a class="btn sm wa" target="_blank" rel="noopener" data-act="outbox-done" data-id="${i.id}" href="https://wa.me/55${i.whatsapp}?text=${encodeURIComponent(i.text)}">${raw(ICON.whats)} Enviar</a>`) : raw(html`<a class="btn sm" data-act="outbox-done" data-id="${i.id}" href="mailto:${i.email}?subject=${encodeURIComponent('Nova senha')}&body=${encodeURIComponent(i.text)}">E-mail</a>`)}</li>`))}</ul></div>` : '';
+    box.innerHTML = items.length ? html`<div class="card"><h3>Fila de envio (${items.length})</h3><p class="hint">O e-mail destes links não foi entregue. Copie o link e envie à pessoa por onde preferir.</p><ul class="list">${items.map(i => raw(html`<li><div class="grow"><div class="t">${i.name}</div><div class="s">link de nova senha</div></div><button class="btn sm" data-act="outbox-copy" data-id="${i.id}" data-v="${(i.text.match(/https?:\/\/\S+/) || [''])[0]}">${raw(ICON.copy)} Copiar link</button></li>`))}</ul></div>` : '';
   } catch { /* sem fila */ }
 }
 
@@ -339,7 +340,21 @@ async function loadOutbox() {
  *  Ações e formulários
  * ===================================================================== */
 const copyText = async (v, msg = 'Copiado!') => { try { await navigator.clipboard.writeText(v); toast(msg); } catch { toast('Selecione e copie manualmente.', true); } };
+/** Botões que aparecem quando o login é bloqueado por excesso de tentativas: saídas rápidas, sem esperar. */
+function throttleActions() {
+  const sp = S.support, msg = encodeURIComponent('Olá! Não consigo entrar no ' + (S.brand?.app_name || 'aplicativo') + '. Pode me ajudar a redefinir a senha?');
+  return '<button type="button" class="btn primary block" style="margin-bottom:10px" data-act="auth-toggle" data-mode="forgot">Esqueci minha senha (link por e-mail)</button>'
+    + (sp?.whatsapp ? '<a class="btn block" style="margin-bottom:10px" target="_blank" rel="noopener" href="https://wa.me/' + esc(sp.whatsapp) + '?text=' + msg + '">Falar com o suporte pelo WhatsApp</a>' : '')
+    + (sp?.email ? '<a class="btn block" style="margin-bottom:10px" href="mailto:' + esc(sp.email) + '?subject=' + encodeURIComponent('Ajuda para entrar') + '">Falar com o suporte por e-mail</a>' : '')
+    + '<p class="small muted center" style="margin:0 0 12px">Ou peça ao administrador da sua academia ou ao seu personal para <b>liberar o seu acesso agora</b>.</p>';
+}
+
 Object.assign(acts, {
+  'user-unlock': guard(async el => { await api('POST', 'manage/unlock', { user_id: +el.dataset.id }); toast('Tentativas liberadas. A pessoa já pode tentar entrar.'); }),
+  'unlock-all': guard(async () => {
+    if (!await ask('Liberar o login de todos?', 'Apaga as tentativas de login erradas de todos os usuários desta empresa. Todos podem tentar entrar agora.', 'Liberar', { danger: false })) return;
+    const r = await api('POST', 'manage/unlock', { company_id: (typeof TEAM !== 'undefined' && TEAM?.cid) || undefined }); toast('Liberado (' + r.released + ' registros).');
+  }),
   'pw-toggle': el => {
     const inp = el.closest('.pw')?.querySelector('input'); if (!inp) return;
     const show = inp.type === 'password'; inp.type = show ? 'text' : 'password';
@@ -349,7 +364,7 @@ Object.assign(acts, {
   'pix-copy': () => copyText($('#pix-text')?.value || '', 'Código PIX copiado! Cole no app do seu banco.'),
   'pay-done': () => { closeModal(); if (S.user) render(); else { authModeVal = 'login'; S.renew = null; renderAuth(); toast('Pronto! Agora é só entrar.'); } },
   'renew-open': guard(() => renewOpen()),
-  'forgot-email': guard(async () => { const r = await api('POST', 'password/forgot', { email: S.forgotEmail, channel: 'email' }); S.forgotMsg = r.message; toast('Pedido enviado por e-mail.'); }),
+  'forgot-email': guard(async () => { const r = await api('POST', 'password/forgot', { email: S.forgotEmail }); S.forgotMsg = r.message; toast('Se o e-mail existir, enviamos o link de novo.'); }),
   'fin-tab': el => { FIN.tab = el.dataset.t; $$('[data-act=fin-tab]').forEach(b => b.setAttribute('aria-selected', b === el)); $('#fin-body').innerHTML = finTab(); },
   'cplan-edit': el => {
     const p = FIN.plans.find(x => x.id == el.dataset.id) || { id: '', name: '', months: 1, price_cents: 0, active: true };
@@ -402,7 +417,8 @@ Object.assign(acts, {
     await api('POST', `company/exercises/${el.dataset.id}/submit`); closeModal(); await loadExercises(true); toast('Enviado para aprovação.'); render();
   }),
   'pb-test': guard(async () => { const r = await api('POST', 'pagbank/test'); toast(r.ok ? 'Conexão com o PagBank funcionando.' : 'O PagBank respondeu com erro ' + r.status, !r.ok); }),
-  'outbox-done': guard(async el => { await api('POST', `manage/outbox/${el.dataset.id}/done`); setTimeout(loadOutbox, 600); }),
+  'outbox-copy': guard(async el => { await copyText(el.dataset.v, 'Link copiado. Envie à pessoa e ele some da fila.'); await api('POST', `manage/outbox/${el.dataset.id}/done`); setTimeout(loadOutbox, 600); }),
+  'mail-test': guard(async el => { el.disabled = true; try { const r = await api('POST', 'mail/test'); toast(r.ok ? `E-mail de teste enviado para ${r.to} (${r.mode}). Confira a caixa de entrada e o spam.` : `Falhou: ${r.error}`, !r.ok); } finally { el.disabled = false; } }),
 });
 
 const priceBody = d => { const c = toCents(d.price); if (!Number.isFinite(c) || c < 0) throw new Error('Informe o valor em reais, como 79,90.'); return c; };

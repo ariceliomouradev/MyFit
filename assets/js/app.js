@@ -66,7 +66,7 @@ async function api(method, path, data) {
   let json = null;
   try { json = await res.json(); } catch { /* resposta não-JSON */ }
   if (res.status === 401 && S.user) { S.user = null; S.denied = json?.error || null; go('#/entrar'); }
-  if (!res.ok) throw Object.assign(new Error(json?.error || `Erro ${res.status}`), { code: json?.code, status: res.status });
+  if (!res.ok) throw Object.assign(new Error(json?.error || `Erro ${res.status}`), { code: json?.code, status: res.status, retry: json?.retry_after });
   return json;
 }
 
@@ -739,7 +739,7 @@ const configAluno = () => html`
       <label class="f">Nome<input class="in" name="name" value="${S.user.name}" maxlength="80" required></label>
       <div class="grid2"><label class="f">Unidade de carga<select class="in" name="unit"><option value="kg" ${S.user.unit === 'kg' ? raw('selected') : ''}>Quilos (kg)</option><option value="lb" ${S.user.unit === 'lb' ? raw('selected') : ''}>Libras (lb)</option></select></label>
       <label class="f">Semana começa<select class="in" name="week_start"><option value="1" ${S.user.week_start === 1 ? raw('selected') : ''}>Segunda</option><option value="0" ${S.user.week_start === 0 ? raw('selected') : ''}>Domingo</option></select></label></div>
-      ${raw(waField('whatsapp', 'WhatsApp (usado para redefinir a senha)', S.user.whatsapp || ''))}
+      ${raw(waField('whatsapp', 'WhatsApp (contato com a academia)', S.user.whatsapp || ''))}
       <label class="f">Avaliações com fotos a cada<select class="in" name="eval_every_days">${[15, 30, 45, 60].map(d => raw(html`<option value="${d}" ${S.user.eval_every_days === d ? raw('selected') : ''}>${d} dias</option>`))}</select></label>
       <p class="small muted">Trocar a unidade muda só o rótulo: os números já registrados não são convertidos.</p>
       <p class="small muted">E-mail: ${S.user.email}${S.user.company_name ? ' · ' + S.user.company_name : ''}${S.user.access_until ? ' · acesso até ' + new Date(S.user.access_until + 'T12:00').toLocaleDateString('pt-BR') : ''}</p>
@@ -958,7 +958,7 @@ document.addEventListener('submit', async e => {
     await forms[f.dataset.form](Object.fromEntries(new FormData(f)), f);
   } catch (err) {
     const box = $('#auth-err');
-    if (box && /^(login|register|forgot|reset|renew)/.test(f.dataset.form)) box.innerHTML = `<div class="err" role="alert">${esc(err.message)}</div>${S.renew && f.dataset.form === 'login' ? '<button type="button" class="btn primary block" style="margin-bottom:12px" data-act="renew-open">Renovar a minha assinatura agora</button>' : ''}`; else toast(err.message, true);
+    if (box && /^(login|register|forgot|reset|renew)/.test(f.dataset.form)) box.innerHTML = `<div class="err" role="alert">${esc(err.message)}</div>${S.renew && f.dataset.form === 'login' ? '<button type="button" class="btn primary block" style="margin-bottom:12px" data-act="renew-open">Renovar a minha assinatura agora</button>' : ''}${err.code === 'throttled' ? throttleActions() : ''}`; else toast(err.message, true);
   } finally { btn && (btn.disabled = false); }
 });
 
@@ -1000,7 +1000,7 @@ document.addEventListener('wheel', e => {
 async function boot() {
   try {
     const r = await api('GET', 'me');
-    Object.assign(S, { user: r.user, profile: r.profile, denied: r.denied, csrf: r.csrf, registration: r.registration, version: r.version });
+    Object.assign(S, { user: r.user, profile: r.profile, denied: r.denied, csrf: r.csrf, registration: r.registration, version: r.version, support: r.support });
     applyBrand(r.brand);
   } catch (e) {
     $('#app').innerHTML = `<div class="auth"><div class="err">${esc(e.message)}</div><button class="btn block" onclick="location.reload()">Tentar de novo</button></div>`;

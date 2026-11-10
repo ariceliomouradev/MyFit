@@ -78,6 +78,8 @@ $routes = [
     // V3: senha, planos, aprovação de exercícios, financeiro, indicação e pagamentos
     ['POST',   'password/forgot',            'h_password_forgot',      false],
     ['POST',   'password/reset',             'h_password_reset',       false],
+    ['POST',   'mail/test',                  'h_mail_test',            true],
+    ['POST',   'manage/unlock',              'h_unlock_login',         true],
     ['GET',    'manage/outbox',              'h_outbox',               true],
     ['POST',   'manage/outbox/{id}/done',    'h_outbox_done',          true],
     ['GET',    'plans',                      'h_plans',                true],

@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 define('APP_ROOT', dirname(__DIR__));
 const APP_NAME = 'Meus Treinos';
-const APP_VERSION = '3.0.0';
+const APP_VERSION = '3.0.1';
 
 $GLOBALS['CONFIG'] = is_file(APP_ROOT . '/config.php') ? (require APP_ROOT . '/config.php') : null;
 

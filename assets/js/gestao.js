@@ -100,7 +100,8 @@ async function teamView(cid) {
       <p class="hint" style="margin:0 0 10px">Passe este código ao aluno. Ele se cadastra e aparece aqui em "Aguardando aprovação".</p>
       <div class="grid3"><div class="stat"><b>${s.pendentes}</b><span>aguardando</span></div><div class="stat"><b>${s.alunos}</b><span>alunos ativos</span></div><div class="stat"><b>${s.expirando}</b><span>vencem em 7 dias</span></div></div>
       <div class="row wrap" style="margin-top:12px"><button class="btn primary sm" data-act="user-new">${raw(ICON.plus)} Novo usuário</button>
-        <a class="btn sm" href="api/manage/export.csv${teamQs(S.user.role === 'super' ? cid : 0)}" download>Exportar contatos (CSV)</a></div></div>
+        <a class="btn sm" href="api/manage/export.csv${teamQs(S.user.role === 'super' ? cid : 0)}" download>Exportar contatos (CSV)</a>
+        <button class="btn sm" data-act="unlock-all">Liberar login de todos</button></div></div>
     <div id="outbox-box"></div>
     ${raw(teamBody())}
     <div id="audit-box"></div>`;
@@ -162,6 +163,7 @@ function openUserManage(u) {
         ${raw(pwField('new_password', 'Nova senha (deixe em branco para manter)', { auto: 'new-password', rules: true, req: false }))}
         <div class="stack"><button class="btn primary block" type="submit">Salvar alterações</button>
           ${u.status === 'bloqueado' ? raw(html`<button class="btn block" type="button" data-act="user-status" data-id="${u.id}" data-st="ativo">Reativar acesso</button>`) : u.status === 'ativo' ? raw(html`<button class="btn block" type="button" data-act="user-status" data-id="${u.id}" data-st="bloqueado">Bloquear acesso</button>`) : ''}
+          ${u.status === 'ativo' ? raw(html`<button class="btn block" type="button" data-act="user-unlock" data-id="${u.id}">Liberar tentativas de login (acesso volta agora)</button>`) : ''}
           ${u.id !== S.user.id ? raw(html`<button class="btn danger block" type="button" data-act="user-del" data-id="${u.id}">Excluir usuário</button>`) : ''}</div>
       </form></div>`);
 }
@@ -309,7 +311,7 @@ const configStaff = () => html`
   ${raw(extraMais())}
   <div class="card"><h3>Meu perfil</h3><form data-form="profile" style="margin-top:10px">
     <label class="f">Nome<input class="in" name="name" value="${S.user.name}" maxlength="80" required></label>
-    ${raw(waField('whatsapp', S.user.role === 'super' ? 'WhatsApp (opcional)' : 'WhatsApp (usado para redefinir a senha)', S.user.whatsapp || '', { req: S.user.role !== 'super' }))}
+    ${raw(waField('whatsapp', S.user.role === 'super' ? 'WhatsApp (opcional)' : 'WhatsApp (contato com a academia)', S.user.whatsapp || '', { req: S.user.role !== 'super' }))}
     <p class="small muted">${ROLE[S.user.role] || 'Gestor geral'}${S.user.company_name ? ' · ' + S.user.company_name : ''} · ${S.user.email}</p>
     <button class="btn primary block" type="submit">Salvar</button></form></div>
   <div class="card"><h3>Trocar senha</h3><form data-form="password" style="margin-top:10px">${raw(pwField('current', 'Senha atual'))}

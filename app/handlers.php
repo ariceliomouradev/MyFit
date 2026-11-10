@@ -4,13 +4,24 @@ declare(strict_types=1);
 /* =====================================================================
  *  Autenticação e conta
  * ===================================================================== */
+/** Contato de suporte da plataforma (config.php 'support' => ['whatsapp' => '5585...', 'email' => '...']). Mostrado quando a pessoa fica sem conseguir entrar. */
+function support_contact(): ?array
+{
+    $c = cfg('support');
+    if (!is_array($c)) return null;
+    $wa = preg_replace('/\D+/', '', (string) ($c['whatsapp'] ?? '')) ?? '';
+    $mail = filter_var((string) ($c['email'] ?? ''), FILTER_VALIDATE_EMAIL) ? (string) $c['email'] : null;
+    return ($wa !== '' || $mail) ? ['whatsapp' => $wa !== '' ? $wa : null, 'email' => $mail] : null;
+}
+
 function h_me(array $p): void
 {
     $u = current_user();
     j(['user' => $u ? user_public($u) : null, 'profile' => ($u && $u['role'] === 'aluno') ? profile_row((int) $u['id']) : null, 'csrf' => csrf_token(),
        'denied' => $u ? null : ($GLOBALS['ACCESS_DENIED'] ?? null),
        'brand' => brand_effective($u['company_id'] ?? null),
-       'registration' => (bool) cfg('allow_registration', true), 'version' => APP_VERSION]);
+       'registration' => (bool) cfg('allow_registration', true), 'version' => APP_VERSION,
+       'support' => support_contact()]);
 }
 
 /**
@@ -18,16 +29,45 @@ function h_me(array $p): void
  *   por IP: 15 / 15 min  ·  por IP + e-mail: 8 / 15 min  ·  por e-mail (de qualquer IP): 60 / 15 min.
  * O limite "fino" é por IP + e-mail: quem erra a senha de outra pessoa trava só o próprio IP, não a vítima.
  */
+const LOGIN_WINDOW_MIN = 5; // o bloqueio dura no máximo 5 minutos e a tela diz quanto falta
 function throttle_login(string $email): void
 {
     Db::run('DELETE FROM login_attempts WHERE created_at < (NOW() - INTERVAL 1 DAY)');
-    $ip = client_ip();
-    Db::run('INSERT INTO login_attempts (ip,email,created_at) VALUES (?,?,?)', [$ip, mb_substr($email, 0, 190), now()]);
-    $w = 'created_at > (NOW() - INTERVAL 15 MINUTE)';
-    $byIp = (int) Db::val("SELECT COUNT(*) FROM login_attempts WHERE ip=? AND email <> '__register__' AND $w", [$ip]);
-    $byPair = (int) Db::val("SELECT COUNT(*) FROM login_attempts WHERE ip=? AND email=? AND $w", [$ip, mb_substr($email, 0, 190)]);
-    $byEmail = (int) Db::val("SELECT COUNT(*) FROM login_attempts WHERE email=? AND $w", [mb_substr($email, 0, 190)]);
-    if ($byIp > 15 || $byPair > 8 || $byEmail > 60) fail('Muitas tentativas. Aguarde alguns minutos e tente de novo.', 429);
+    $ip = client_ip(); $e = mb_substr($email, 0, 190);
+    Db::run('INSERT INTO login_attempts (ip,email,created_at) VALUES (?,?,?)', [$ip, $e, now()]);
+    $myRow = Db::id();
+    $w = 'created_at > (NOW() - INTERVAL ' . LOGIN_WINDOW_MIN . " MINUTE) AND LEFT(email,2) <> '__'";
+    // [condição, parâmetros, limite]: por aparelho+e-mail (o fino), por aparelho (alto: academia e casa compartilham o mesmo Wi-Fi), por e-mail em qualquer aparelho
+    $rules = [['ip=? AND email=?', [$ip, $e], 6], ['ip=?', [$ip], 60], ['email=?', [$e], 40]];
+    foreach ($rules as [$cond, $args, $limit]) {
+        if ((int) Db::val("SELECT COUNT(*) FROM login_attempts WHERE $cond AND $w", $args) <= $limit) continue;
+        // a tentativa bloqueada NÃO prolonga o bloqueio; ele termina quando a mais antiga sai da janela
+        Db::run('DELETE FROM login_attempts WHERE id=?', [$myRow]);
+        $edge = Db::val("SELECT MIN(created_at) FROM (SELECT created_at FROM login_attempts WHERE $cond AND $w ORDER BY created_at DESC LIMIT $limit) t", $args);
+        $wait = max(1, ($edge ? strtotime((string) $edge) : time()) + LOGIN_WINDOW_MIN * 60 - time());
+        $when = $wait >= 90 ? 'em ' . (int) ceil($wait / 60) . ' minutos' : 'em ' . $wait . ' segundos';
+        j(['error' => "Muitas tentativas de entrar. Tente de novo $when. Se esqueceu a senha, use \"Esqueci minha senha\" ou peça ao administrador da sua academia para liberar o seu acesso agora.", 'code' => 'throttled', 'retry_after' => $wait], 429);
+    }
+}
+
+/** Libera as tentativas de login: de uma pessoa, da empresa inteira (administrador) ou de todos (gestor). Acesso volta na hora. */
+function h_unlock_login(array $p, array $u): void
+{
+    require_role($u, 'admin', 'super');
+    $in = body();
+    if (!empty($in['user_id'])) {
+        $t = manageable_target($u, (int) $in['user_id']);
+        $n = Db::run('DELETE FROM login_attempts WHERE email=?', [$t['email']])->rowCount();
+        audit($u, (int) $t['id'], 'login_liberado', '');
+    } elseif ($u['role'] === 'admin' || !empty($in['company_id'])) {
+        $cid = company_scope($u, $in['company_id'] ?? null);
+        $n = Db::run('DELETE FROM login_attempts WHERE LEFT(email,2) <> \'__\' AND (email IN (SELECT email FROM users WHERE company_id=?))', [$cid])->rowCount();
+        audit($u, null, 'login_liberado', 'todos da empresa');
+    } else {
+        $n = Db::run('DELETE FROM login_attempts WHERE LEFT(email,2) <> \'__\'')->rowCount();
+        audit($u, null, 'login_liberado', 'todos');
+    }
+    j(['ok' => true, 'released' => $n]);
 }
 
 function login_session(int $uid, int $pwdVersion = 0): void

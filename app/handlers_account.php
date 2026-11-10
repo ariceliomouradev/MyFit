@@ -6,7 +6,7 @@ declare(strict_types=1);
  * ===================================================================== */
 
 const RESET_MINUTES = 30;
-const RESET_OK_MSG = 'Se este e-mail estiver cadastrado, enviamos o link para o WhatsApp (ou, se não der, para o e-mail). Ele vale por 30 minutos.';
+const RESET_OK_MSG = 'Se este e-mail estiver cadastrado, enviamos o link de redefinição para ele. Confira também a caixa de spam. O link vale por 30 minutos.';
 
 function throttle_marker(string $marker, int $perHour): void
 {
@@ -15,7 +15,16 @@ function throttle_marker(string $marker, int $perHour): void
     Db::run('INSERT INTO login_attempts (ip,email,created_at) VALUES (?,?,?)', [client_ip(), $marker, now()]);
 }
 
-/** "Esqueci a senha": manda o link para o WhatsApp e, se não for possível, para o e-mail. A resposta é sempre a mesma. */
+/** E-mail de teste (gestor): manda uma mensagem para o próprio e-mail do gestor e diz se o servidor aceitou, com o motivo se falhar. */
+function h_mail_test(array $p, array $u): void
+{
+    require_role($u, 'super');
+    $mode = smtp_cfg() ? 'smtp' : 'mail()';
+    $ok = send_email((string) $u['email'], 'Teste de e-mail do ' . brand_effective(null)['app_name'], "Se você recebeu esta mensagem, o envio de e-mail do aplicativo está funcionando.\nEnviada em " . date('d/m/Y H:i') . '.');
+    j(['ok' => $ok, 'mode' => $mode, 'to' => $u['email'], 'error' => $ok ? null : (mail_last_error() ?: 'não foi possível enviar')]);
+}
+
+/** "Esqueci a senha": manda o link por e-mail (se falhar, vai para a fila do administrador). A resposta é sempre a mesma. */
 function h_password_forgot(array $p): void
 {
     throttle_marker('__forgot__', 8);
@@ -33,7 +42,7 @@ function h_password_forgot(array $p): void
         $rid = Db::id();
         $app = brand_effective($u['company_id'] ? (int) $u['company_id'] : null)['app_name'];
         $text = "$app: para criar uma nova senha, abra o link (vale " . RESET_MINUTES . " minutos e só funciona uma vez):\n$base/#/redefinir/$token\nSe não foi você, ignore esta mensagem.";
-        $channel = deliver_message($u, "$app: redefinição de senha", $text, 'reset', ($in['channel'] ?? '') === 'email');
+        $channel = deliver_message($u, "$app: redefinição de senha", $text, 'reset');
         Db::run('UPDATE password_resets SET channel=? WHERE id=?', [$channel, $rid]);
     }
     exit;

@@ -325,7 +325,7 @@ function h_pagbank_status(array $p, array $u): void
     require_role($u, 'super');
     $c = pb_cfg(); $base = app_url();
     j(['configured' => $c !== null, 'env' => $c['env'] ?? null, 'app_url' => $base ?: null, 'webhook_url' => $base ? $base . '/api/pagbank/webhook' : null,
-       'https' => str_starts_with($base, 'https://'), 'whatsapp' => is_array(cfg('whatsapp')) ? (cfg('whatsapp')['driver'] ?? null) : null,
+       'https' => str_starts_with($base, 'https://'), 'mail' => smtp_cfg() ? 'smtp' : (cfg('mail_enabled', true) === false ? 'desligado' : 'mail()'),
        'pending' => (int) Db::val("SELECT COUNT(*) FROM payments WHERE status='pendente' AND method='pix'"), 'paid' => (int) Db::val("SELECT COUNT(*) FROM payments WHERE status='pago' AND method='pix'")]);
 }
 

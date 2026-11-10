@@ -20,14 +20,11 @@ return [
   // Gere em: sandbox -> https://portaldev.pagbank.com.br (aba Tokens) · produção -> conta PagBank > Vendas > Integrações > Gerar Token
   // 'pagbank' => ['token' => 'COLE-O-TOKEN-AQUI', 'env' => 'sandbox'],
 
-  // ---- WhatsApp para enviar a redefinição de senha (opcional) ----
-  // Sem isto (ou se falhar) o app envia por e-mail; se o e-mail também falhar, o link cai na "Fila de envio" do administrador.
-  // Opção 1: API oficial da Meta (WhatsApp Cloud API). Mensagem iniciada pela empresa exige um "template" aprovado com 1 variável de texto.
-  // 'whatsapp' => ['driver' => 'meta', 'phone_id' => 'ID-DO-NUMERO', 'token' => 'TOKEN-PERMANENTE', 'template' => 'redefinir_senha', 'lang' => 'pt_BR'],
-  // Opção 2: um serviço seu (Z-API, Evolution API, n8n...) que receba POST {"to":"5585988887777","text":"..."} com "Authorization: Bearer <secret>".
-  // 'whatsapp' => ['driver' => 'webhook', 'url' => 'https://seu-servico/enviar', 'secret' => 'SEGREDO'],
-
-  // ---- E-mail (usa o envio de e-mail da própria hospedagem) ----
-  // Crie a caixa no hPanel > E-mails e use esse endereço como remetente (melhora a entrega, evita cair no spam).
-  // 'mail_from' => 'nao-responda@seudominio.com.br',
+  // ---- E-mail (usado na redefinição de senha) ----
+  // RECOMENDADO: SMTP com uma caixa de e-mail de verdade. O remetente é a própria caixa, então SPF/DKIM do seu domínio valem e a mensagem chega.
+  // 1) hPanel > E-mails > crie uma caixa, ex.: nao-responda@seudominio.com.br  2) preencha abaixo (descomente) com o endereço e a senha dessa caixa.
+  // Hostinger: servidor smtp.hostinger.com, porta 465 com 'secure' => 'ssl' (ou porta 587 com 'secure' => 'tls').
+  // 'smtp' => ['host' => 'smtp.hostinger.com', 'port' => 465, 'secure' => 'ssl', 'user' => 'nao-responda@seudominio.com.br', 'pass' => 'SENHA-DA-CAIXA', 'from' => 'nao-responda@seudominio.com.br'],
+  // Sem 'smtp', o app tenta o mail() da hospedagem (pode ser aceito e nunca entregue). Para desligar de vez: 'mail_enabled' => false.
+  // Se o e-mail falhar, o link vai para a "Fila de envio" do administrador (ele copia o link e manda à pessoa).
 ];
