@@ -2,7 +2,7 @@
  * A tela só mostra o que cada perfil pode fazer; quem decide de verdade é o servidor (api/). */
 'use strict';
 
-const PERIODS = [['30d', '30 dias'], ['2m', '2 meses'], ['3m', '3 meses'], ['6m', '6 meses'], ['12m', '12 meses'], ['24m', '2 anos'], ['custom', 'Personalizado…']];
+const PERIODS = [['30d', '30 dias'], ['2m', '2 meses'], ['3m', '3 meses'], ['6m', '6 meses'], ['12m', '12 meses'], ['24m', '2 anos'], ['custom', 'Outro (escolher data)']];
 const STATUS = { pendente: 'Aguardando aprovação', ativo: 'Ativo', bloqueado: 'Bloqueado' };
 const ROLE = { aluno: 'Aluno', personal: 'Personal', admin: 'Administrador' };
 const fmtD = d => d ? new Date(String(d).slice(0, 10) + 'T12:00:00').toLocaleDateString('pt-BR') : '–';
@@ -18,13 +18,18 @@ const isStaff = () => S.user && S.user.role !== 'aluno';
 function periodFields({ keep = false, extend = false, cur = '' } = {}) {
   return html`<div class="f">Período de acesso
     <select class="in" name="period" data-period>${keep ? raw('<option value="">Não alterar</option>') : ''}${PERIODS.map(([v, l]) => raw(html`<option value="${v}" ${!keep && v === (cur || '3m') ? raw('selected') : ''}>${l}</option>`))}</select>
-    <input class="in" type="date" name="custom" data-custom hidden min="${todayStr()}" aria-label="Data de validade">
+    <span class="period-custom" data-custom-wrap hidden><span class="lbl">Acesso válido até</span><input class="in" type="date" name="custom" data-custom min="${todayStr()}" aria-label="Acesso válido até"></span>
     ${extend ? raw('<label class="chk"><input type="checkbox" name="extend" value="1" checked> Somar à validade atual (renovar)</label>') : ''}</div>`;
 }
 document.addEventListener('change', e => {
   if (!e.target.matches?.('[data-period]')) return;
-  const c = e.target.closest('form')?.querySelector('[data-custom]');
-  if (c) { c.hidden = e.target.value !== 'custom'; if (!c.hidden) c.focus(); }
+  const w = e.target.closest('form')?.querySelector('[data-custom-wrap]'), c = w?.querySelector('[data-custom]');
+  if (w) { w.hidden = e.target.value !== 'custom'; if (c) { c.required = !w.hidden; if (!w.hidden) c.focus(); } }
+});
+// Perfil escolhido no cadastro de usuário: "personal responsável" só existe para aluno.
+document.addEventListener('change', e => {
+  if (!e.target.matches?.('[data-role-sel]')) return;
+  for (const el of $$('[data-only-role]', e.target.closest('form'))) el.hidden = el.dataset.onlyRole !== e.target.value;
 });
 const periodBody = d => d.period ? { period: d.period, custom: d.custom || null, extend: !!d.extend } : {};
 const personalSelect = (personals, cur = '') => html`<label class="f">Personal responsável<select class="in" name="personal_id"><option value="">Sem personal</option>${personals.map(p => raw(html`<option value="${p.id}" ${String(p.id) === String(cur) ? raw('selected') : ''}>${p.name}</option>`))}</select></label>`;
@@ -46,11 +51,12 @@ route(/^#\/gestor$/, async () => {
       <div class="row between wrap"><div style="min-width:0"><h3>${c.name}</h3>
         <div class="small muted">${c.alunos} ${pl(c.alunos, 'aluno', 'alunos')} · ${c.personals} ${pl(c.personals, 'personal', 'personais')} · ${c.users} usuários${c.pending ? ' · ' : ''}${c.pending ? raw(html`<b class="warn-t">${c.pending} aguardando</b>`) : ''}</div></div>
         <span class="badge ${c.status === 'ativa' ? 'tone-ok' : 'tone-bad'}">${c.status === 'ativa' ? 'Ativa' : 'Suspensa'}</span></div>
-      <div class="row wrap" style="margin:8px 0"><span class="badge tone-${daysTone(c.days_left)}">${c.access_until ? `${daysLabel(c.days_left)} · até ${fmtD(c.access_until)}` : 'sem prazo'}</span>
+      <div class="row wrap" style="margin:8px 0"><span class="badge ${c.plan_name ? 'tone-ok' : ''}">${c.plan_name ? 'Plano ' + c.plan_name : 'sem plano'}</span><span class="badge ${c.max_students != null && c.alunos_ativos >= c.max_students ? 'tone-bad' : ''}">${c.alunos_ativos}${c.max_students != null ? ' de ' + c.max_students : ''} alunos · ${c.personals}${c.max_personals != null ? ' de ' + c.max_personals : ''} ${pl(c.personals, 'personal', 'personais')}</span><span class="badge tone-${daysTone(c.days_left)}">${c.access_until ? `${daysLabel(c.days_left)} · até ${fmtD(c.access_until)}` : 'sem prazo'}</span>
         <button class="badge code" data-act="copy" data-v="${c.code}" aria-label="Copiar código ${c.code}">Código ${c.code} ⧉</button></div>
       <div class="small muted">Administrador${c.admins.length > 1 ? 'es' : ''}: ${c.admins.map(a => a.name + ' (' + a.email + ')').join(', ')}</div>
       <div class="row wrap" style="margin-top:10px"><a class="btn sm primary" href="#/gestor/empresa/${c.id}">Gerenciar</a>
         <button class="btn sm" data-act="co-valid" data-id="${c.id}">Validade</button>
+        <button class="btn sm" data-act="co-plan" data-id="${c.id}">Plano</button>
         <button class="btn sm ghost" data-act="co-toggle" data-id="${c.id}" data-st="${c.status}">${c.status === 'ativa' ? 'Suspender' : 'Reativar'}</button>
         <button class="btn sm ghost" data-act="co-code" data-id="${c.id}">Novo código</button></div></div>`))}`;
 });
@@ -68,8 +74,8 @@ route(/^#\/gestor\/usuarios$/, async () => {
 let TEAM = null;
 const teamQs = cid => cid ? `?company_id=${cid}` : '';
 
-route(/^#\/equipe$/, () => teamView(S.user.company_id), { after: () => { bindTeam(); loadAudit(); } });
-route(/^#\/gestor\/empresa\/(\d+)$/, id => teamView(+id), { after: () => { bindTeam(); loadAudit(); } });
+route(/^#\/equipe$/, () => teamView(S.user.company_id), { after: () => { bindTeam(); loadAudit(); loadOutbox(); } });
+route(/^#\/gestor\/empresa\/(\d+)$/, id => teamView(+id), { after: () => { bindTeam(); loadAudit(); loadOutbox(); } });
 
 /** Registro de atividades da empresa: quem viu ficha/fotos, trocou personal, redefiniu senha, aprovou, excluiu. */
 async function loadAudit() {
@@ -95,6 +101,7 @@ async function teamView(cid) {
       <div class="grid3"><div class="stat"><b>${s.pendentes}</b><span>aguardando</span></div><div class="stat"><b>${s.alunos}</b><span>alunos ativos</span></div><div class="stat"><b>${s.expirando}</b><span>vencem em 7 dias</span></div></div>
       <div class="row wrap" style="margin-top:12px"><button class="btn primary sm" data-act="user-new">${raw(ICON.plus)} Novo usuário</button>
         <a class="btn sm" href="api/manage/export.csv${teamQs(S.user.role === 'super' ? cid : 0)}" download>Exportar contatos (CSV)</a></div></div>
+    <div id="outbox-box"></div>
     ${raw(teamBody())}
     <div id="audit-box"></div>`;
 }
@@ -147,11 +154,12 @@ function openUserManage(u) {
         <div class="row wrap" style="margin-top:10px">${raw(waBtn(u.whatsapp, 'Chamar no WhatsApp'))}<a class="btn sm" href="mailto:${u.email}">E-mail</a>${u.role === 'aluno' && u.status === 'ativo' ? raw(html`<a class="btn sm" href="#/aluno/${u.id}" data-close>Ver ficha</a>`) : ''}</div></div>
       <form data-form="user-edit" data-id="${u.id}">
         <label class="f">Nome<input class="in" name="name" value="${u.name}" maxlength="80" required></label>
-        <label class="f">WhatsApp<input class="in" name="whatsapp" type="tel" value="${u.whatsapp || ''}" ${u.role === 'aluno' ? 'required' : ''}></label>
+        ${raw(waField('whatsapp', 'WhatsApp', u.whatsapp || ''))}
         ${raw(periodFields({ keep: true, extend: true }))}
         ${u.role === 'aluno' ? raw(personalSelect(TEAM.personals, u.personal_id)) : ''}
-        ${canRole ? raw(html`<label class="f">Perfil<select class="in" name="role">${roles.map(r => raw(html`<option value="${r}" ${r === u.role ? raw('selected') : ''}>${ROLE[r]}</option>`))}</select></label>`) : ''}
-        <label class="f">Nova senha (deixe em branco para manter)<input class="in" name="new_password" type="password" autocomplete="new-password" minlength="8"></label>
+        ${u.role === 'aluno' ? raw(html`<div class="f">Perfil<div class="locked">${ROLE.aluno}<span class="muted small"> · não pode ser alterado</span></div></div>`)
+          : canRole ? raw(html`<label class="f">Perfil<select class="in" name="role">${roles.filter(r => r !== 'aluno').map(r => raw(html`<option value="${r}" ${r === u.role ? raw('selected') : ''}>${ROLE[r]}</option>`))}</select></label>`) : ''}
+        ${raw(pwField('new_password', 'Nova senha (deixe em branco para manter)', { auto: 'new-password', rules: true, req: false }))}
         <div class="stack"><button class="btn primary block" type="submit">Salvar alterações</button>
           ${u.status === 'bloqueado' ? raw(html`<button class="btn block" type="button" data-act="user-status" data-id="${u.id}" data-st="ativo">Reativar acesso</button>`) : u.status === 'ativo' ? raw(html`<button class="btn block" type="button" data-act="user-status" data-id="${u.id}" data-st="bloqueado">Bloquear acesso</button>`) : ''}
           ${u.id !== S.user.id ? raw(html`<button class="btn danger block" type="button" data-act="user-del" data-id="${u.id}">Excluir usuário</button>`) : ''}</div>
@@ -170,13 +178,14 @@ function openUserApprove(u) {
 function openUserNew() {
   openModal(html`<div class="row between" style="margin-bottom:6px"><h2>Novo usuário</h2><button class="icon-btn" data-close aria-label="Fechar">${raw(ICON.x)}</button></div>
     <div class="scroll"><form data-form="user-new">
-      <label class="f">Perfil<select class="in" name="role"><option value="aluno">Aluno</option><option value="personal">Personal</option>${S.user.role === 'super' ? raw('<option value="admin">Administrador</option>') : ''}</select></label>
-      <label class="f">Nome<input class="in" name="name" required maxlength="80"></label>
-      <label class="f">E-mail<input class="in" name="email" type="email" required></label>
-      <label class="f">WhatsApp (com DDD)<input class="in" name="whatsapp" type="tel" placeholder="(85) 98888-7777"></label>
-      <label class="f">Senha provisória (mín. 8)<input class="in" name="password" type="password" minlength="8" required autocomplete="new-password"></label>
-      ${raw(periodFields({ cur: '3m' }))}${raw(personalSelect(TEAM.personals))}
-      <p class="hint">Quem você cria aqui já entra liberado, sem precisar de aprovação.</p>
+      <label class="f">Perfil<select class="in" name="role" data-role-sel><option value="aluno">Aluno</option><option value="personal">Personal</option>${S.user.role === 'super' ? raw('<option value="admin">Administrador</option>') : ''}</select></label>
+      <label class="f">Nome completo<input class="in" name="name" required maxlength="80"></label>
+      ${raw(emailField('email'))}
+      ${raw(waField())}
+      ${raw(pwField('password', 'Senha provisória', { auto: 'new-password', rules: true }))}
+      ${raw(periodFields({ cur: '3m' }))}
+      <span data-only-role="aluno">${raw(personalSelect(TEAM.personals))}</span>
+      <p class="hint">Quem você cria aqui já entra liberado, sem precisar de aprovação, e troca a senha no primeiro acesso. Personal e administrador não têm "personal responsável".</p>
       <button class="btn primary block" type="submit">Criar usuário</button></form></div>`);
 }
 
@@ -287,19 +296,24 @@ async function companyExerciseForm(ex) {
       <label class="f">Como fazer (um passo por linha, mínimo 2)<textarea class="in" name="steps" rows="5" required>${(d.steps || []).join('\n')}</textarea></label>
       <label class="f">Dicas (uma por linha)<textarea class="in" name="tips" rows="3">${(d.tips || []).join('\n')}</textarea></label>
       <label class="f">Erros comuns (um por linha)<textarea class="in" name="mistakes" rows="3">${(d.mistakes || []).join('\n')}</textarea></label>
-      <div class="stack"><button class="btn primary block" type="submit">Salvar exercício</button>${ex ? raw(html`<button class="btn danger block" type="button" data-act="ex-del" data-id="${ex.id}">Excluir exercício</button>`) : ''}</div></form></div>`);
+      ${ex && ex.share === 'recusado' ? raw(html`<div class="err">Recusado pelo gestor: ${ex.share_note}</div>`) : ''}
+      ${ex && ex.share === 'pendente' ? raw('<div class="infobox"><span>Aguardando a aprovação do gestor geral para entrar na lista geral do app.</span></div>') : ''}
+      <div class="stack"><button class="btn primary block" type="submit">Salvar exercício</button>
+        ${ex && S.user.role !== 'super' && ex.shared && ex.share !== 'pendente' ? raw(html`<button class="btn block" type="button" data-act="ex-submit" data-id="${ex.id}">Enviar para a lista geral do app</button>`) : ''}
+        ${ex ? raw(html`<button class="btn danger block" type="button" data-act="ex-del" data-id="${ex.id}">Excluir exercício</button>`) : ''}</div></form></div>`);
 }
 
 /* ---- Configurações de quem gerencia ---- */
 const configStaff = () => html`
   <div class="page-title"><h1>Mais</h1></div>
+  ${raw(extraMais())}
   <div class="card"><h3>Meu perfil</h3><form data-form="profile" style="margin-top:10px">
     <label class="f">Nome<input class="in" name="name" value="${S.user.name}" maxlength="80" required></label>
-    <label class="f">WhatsApp (com DDD)<input class="in" name="whatsapp" type="tel" value="${S.user.whatsapp || ''}"></label>
+    ${raw(waField('whatsapp', S.user.role === 'super' ? 'WhatsApp (opcional)' : 'WhatsApp (usado para redefinir a senha)', S.user.whatsapp || '', { req: S.user.role !== 'super' }))}
     <p class="small muted">${ROLE[S.user.role] || 'Gestor geral'}${S.user.company_name ? ' · ' + S.user.company_name : ''} · ${S.user.email}</p>
     <button class="btn primary block" type="submit">Salvar</button></form></div>
-  <div class="card"><h3>Trocar senha</h3><form data-form="password" style="margin-top:10px"><label class="f">Senha atual<input class="in" type="password" name="current" autocomplete="current-password" required></label>
-    <label class="f">Nova senha (mín. 8)<input class="in" type="password" name="new" autocomplete="new-password" minlength="8" required></label><button class="btn block" type="submit">Trocar senha</button></form></div>
+  <div class="card"><h3>Trocar senha</h3><form data-form="password" style="margin-top:10px">${raw(pwField('current', 'Senha atual'))}
+    ${raw(pwField('new', 'Nova senha', { auto: 'new-password', rules: true }))}<button class="btn block" type="submit">Trocar senha</button></form></div>
   <div class="card"><button class="btn block" data-act="logout">Sair</button></div>
   <p class="center small muted">Meus Treinos · v${S.version || ''}</p>`;
 
@@ -309,16 +323,18 @@ const configStaff = () => html`
 Object.assign(acts, {
   copy: guard(async el => { try { await navigator.clipboard.writeText(el.dataset.v); toast('Código copiado: ' + el.dataset.v); } catch { toast('Código: ' + el.dataset.v); } }),
 
-  'co-new': () => openModal(html`<div class="row between" style="margin-bottom:6px"><h2>Nova empresa</h2><button class="icon-btn" data-close aria-label="Fechar">${raw(ICON.x)}</button></div>
+  'co-new': guard(async () => { const { plans } = await api('GET', 'plans'); const m = openModal(html`<div class="row between" style="margin-bottom:6px"><h2>Nova empresa</h2><button class="icon-btn" data-close aria-label="Fechar">${raw(ICON.x)}</button></div>
     <div class="scroll"><form data-form="co-new">
       <label class="f">Nome da empresa<input class="in" name="name" required maxlength="120" placeholder="Ex.: Academia Ritmo"></label>
       ${raw(periodFields({ cur: '12m' }))}
       <h3 style="margin:6px 0 2px">Administrador da empresa</h3><p class="hint" style="margin-top:0">Ele aprova os alunos, cria usuários e define a validade de cada um.</p>
+      <label class="f">Plano da plataforma<select class="in" name="plan_id" id="co-plan-sel"><option value="">Sem plano (sem limite)</option></select></label>
       <label class="f">Nome<input class="in" name="a_name" required maxlength="80"></label>
-      <label class="f">E-mail (será o login)<input class="in" name="a_email" type="email" required></label>
-      <label class="f">WhatsApp<input class="in" name="a_whatsapp" type="tel" placeholder="(85) 98888-7777"></label>
-      <label class="f">Senha provisória (mín. 8)<input class="in" name="a_password" type="password" minlength="8" required autocomplete="new-password"></label>
-      <button class="btn primary block" type="submit">Criar empresa</button></form></div>`),
+      ${raw(emailField('a_email', 'E-mail (será o login)'))}
+      ${raw(waField('a_whatsapp'))}
+      ${raw(pwField('a_password', 'Senha provisória', { auto: 'new-password', rules: true }))}
+      <button class="btn primary block" type="submit">Criar empresa</button></form></div>`);
+    $('#co-plan-sel', m).insertAdjacentHTML('beforeend', plans.filter(p => p.active).map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')); }),
   'co-valid': guard(async el => {
     const { companies } = await api('GET', 'companies'); const c = companies.find(x => x.id == el.dataset.id);
     openModal(html`<div class="row between" style="margin-bottom:6px"><h2>Validade de ${c.name}</h2><button class="icon-btn" data-close aria-label="Fechar">${raw(ICON.x)}</button></div>
@@ -374,7 +390,7 @@ Object.assign(acts, {
 
 Object.assign(forms, {
   'co-new': async d => {
-    await api('POST', 'companies', { name: d.name, ...periodBody(d), admin: { name: d.a_name, email: d.a_email, whatsapp: d.a_whatsapp, password: d.a_password } });
+    await api('POST', 'companies', { name: d.name, plan_id: d.plan_id ? +d.plan_id : null, ...periodBody(d), admin: { name: d.a_name, email: d.a_email, whatsapp: d.a_whatsapp, password: d.a_password } });
     closeModal(); toast('Empresa criada.'); render();
   },
   'co-valid': async (d, f) => { await api('PATCH', `companies/${f.dataset.id}`, periodBody(d)); closeModal(); toast('Validade atualizada.'); render(); },

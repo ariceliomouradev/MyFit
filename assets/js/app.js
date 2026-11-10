@@ -66,7 +66,7 @@ async function api(method, path, data) {
   let json = null;
   try { json = await res.json(); } catch { /* resposta não-JSON */ }
   if (res.status === 401 && S.user) { S.user = null; S.denied = json?.error || null; go('#/entrar'); }
-  if (!res.ok) throw new Error(json?.error || `Erro ${res.status}`);
+  if (!res.ok) throw Object.assign(new Error(json?.error || `Erro ${res.status}`), { code: json?.code, status: res.status });
   return json;
 }
 
@@ -113,11 +113,11 @@ let renderToken = 0;
 const homeFor = role => ({ super: '#/gestor', admin: '#/equipe', personal: '#/alunos' })[role] || '#/';
 function canOpen(role, hash) {
   const common = /^#\/(config|exercicios|exercicio\/\d+)$/.test(hash);
-  if (role === 'aluno') return !/^#\/(gestor|equipe|alunos|aluno\/|marca)/.test(hash);
+  if (role === 'aluno') return !/^#\/(gestor|equipe|alunos|aluno\/|marca|financeiro|planos|aprovacoes|ganhos)/.test(hash);
   if (common) return true;
-  if (role === 'super') return /^#\/(gestor|aluno\/\d+|alunos|marca$)/.test(hash);
-  if (role === 'admin') return /^#\/(equipe|alunos|aluno\/\d+|marca)$/.test(hash);
-  if (role === 'personal') return /^#\/(alunos|aluno\/\d+)$/.test(hash);
+  if (role === 'super') return /^#\/(gestor|aluno\/\d+|alunos|marca$|planos$|aprovacoes$|financeiro$)/.test(hash);
+  if (role === 'admin') return /^#\/(equipe|alunos|aluno\/\d+|marca|financeiro|assinatura)$/.test(hash);
+  if (role === 'personal') return /^#\/(alunos|aluno\/\d+|ganhos)$/.test(hash);
   return false;
 }
 
@@ -162,20 +162,21 @@ function layout(content, hash, focus) {
       ${raw(tab('#/progresso', 'Progresso', ICON.chart, /^#\/(progresso|corpo|historico|avaliacao)/))}
       ${raw(tab('#/exercicios', 'Exercícios', ICON.dumb, /^#\/exerc/))}`,
     super: html`
-      ${raw(tab('#/gestor', 'Empresas', ICON.building, /^#\/gestor$|^#\/gestor\/empresa/))}
-      ${raw(tab('#/gestor/usuarios', 'Usuários', ICON.users, /^#\/gestor\/usuarios/))}
-      ${raw(tab('#/exercicios', 'Exercícios', ICON.dumb, /^#\/exerc/))}
+      ${raw(tab('#/gestor', 'Empresas', ICON.building, /^#\/gestor($|\/)/))}
+      ${raw(tab('#/planos', 'Planos', ICON.tag, /^#\/planos/))}
+      ${raw(tab('#/aprovacoes', 'Aprovações', ICON.check, /^#\/aprovacoes/))}
       ${raw(tab('#/marca', 'Marca', ICON.palette, /^#\/marca/))}
-      ${raw(tab('#/config', 'Mais', ICON.more, /^#\/config/))}`,
+      ${raw(tab('#/config', 'Mais', ICON.more, /^#\/(config|exerc)/))}`,
     admin: html`
       ${raw(tab('#/equipe', 'Equipe', ICON.users, /^#\/equipe/))}
       ${raw(tab('#/alunos', 'Alunos', ICON.chart, /^#\/(alunos|aluno\/)/))}
+      ${raw(tab('#/financeiro', 'Financeiro', ICON.wallet, /^#\/(financeiro|assinatura)/))}
       ${raw(tab('#/exercicios', 'Exercícios', ICON.dumb, /^#\/exerc/))}
-      ${raw(tab('#/marca', 'Marca', ICON.palette, /^#\/marca/))}
-      ${raw(tab('#/config', 'Mais', ICON.more, /^#\/config/))}`,
+      ${raw(tab('#/config', 'Mais', ICON.more, /^#\/(config|marca)/))}`,
     personal: html`
       ${raw(tab('#/alunos', 'Alunos', ICON.users, /^#\/(alunos|aluno\/)/))}
       ${raw(tab('#/exercicios', 'Exercícios', ICON.dumb, /^#\/exerc/))}
+      ${raw(tab('#/ganhos', 'Ganhos', ICON.wallet, /^#\/ganhos/))}
       ${raw(tab('#/config', 'Mais', ICON.more, /^#\/config/))}`,
   }[role];
   const roleLabel = { super: 'Gestor geral', admin: 'Administrador', personal: 'Personal' }[role];
@@ -629,7 +630,7 @@ let LIB = { q: '', muscle: '', env: '' };
 route(/^#\/exercicios$/, async () => { await loadExercises(true); return libraryHtml(); }, { after: () => bindLibrary() });
 function libraryHtml() {
   return html`
-    <div class="page-title"><h1>Exercícios</h1><button class="btn primary sm" data-act="ex-new">${raw(ICON.plus)} Novo</button></div>
+    <div class="page-title"><h1>Exercícios</h1>${S.user.role === 'aluno' ? '' : raw(html`<button class="btn primary sm" data-act="ex-new">${raw(ICON.plus)} Novo</button>`)}</div>
     <input class="in" type="search" id="lib-q" placeholder="Buscar exercício…" value="${LIB.q}" style="margin:0 0 10px" aria-label="Buscar exercício">
     <div class="chips">${[['', 'Todos os locais'], ['casa', 'Em casa'], ['academia', 'Academia']].map(([k, v]) => raw(html`<button class="chip" aria-pressed="${k === LIB.env}" data-le="${k}">${v}</button>`))}</div>
     <div class="chips">${[['', 'Todos'], ...Object.entries(MUSCLE)].map(([k, v]) => raw(html`<button class="chip" aria-pressed="${k === LIB.muscle}" data-lm="${k}">${v}</button>`))}</div>
@@ -640,7 +641,7 @@ function bindLibrary() {
   const draw = () => {
     const items = S.exercises.filter(e => (!LIB.muscle || e.muscle === LIB.muscle) && envOk(e, LIB.env) && (!LIB.q || norm(e.name).includes(norm(LIB.q))));
     $('#lib-list').innerHTML = items.length ? html`<p class="hint" style="margin:0 0 4px">${items.length} exercícios</p><ul class="list">${items.slice(0, 120).map(e => raw(html`<li><button class="pick" data-act="ex-info" data-ex="${e.id}">${raw(mediaTag(e.media, e.name, 'thumb sm'))}<span class="grow"><span class="t">${e.name}</span><span class="s">${MUSCLE[e.muscle]} · ${EQUIP[e.equipment]}${e.level ? ' · ' + LVL_SHORT[e.level] : ''}${e.type === 'time' ? ' · por tempo' : ''}</span></span></button>
-      ${e.mine || (e.shared && S.user.role !== 'aluno') ? raw(html`<span class="badge">${e.shared ? 'empresa' : 'meu'}</span><button class="icon-btn" data-act="ex-edit" data-id="${e.id}" aria-label="Editar">${raw(ICON.edit)}</button>`) : ''}</li>`))}</ul>${items.length > 120 ? '<p class="hint">Mostrando 120. Use a busca para achar os outros.</p>' : ''}` : '<p class="empty">Nenhum exercício encontrado.</p>';
+      ${e.mine || (e.shared && S.user.role !== 'aluno') ? raw(html`<span class="badge ${e.share === 'pendente' ? 'tone-warn' : e.share === 'recusado' ? 'tone-bad' : ''}" title="${e.share_note || ''}">${e.shared ? ({ pendente: 'aguardando gestor', recusado: 'recusado' }[e.share] || 'só a empresa') : 'meu'}</span><button class="icon-btn" data-act="ex-edit" data-id="${e.id}" aria-label="Editar">${raw(ICON.edit)}</button>`) : ''}</li>`))}</ul>${items.length > 120 ? '<p class="hint">Mostrando 120. Use a busca para achar os outros.</p>' : ''}` : '<p class="empty">Nenhum exercício encontrado.</p>';
   };
   draw();
   $('#lib-q').addEventListener('input', e => { LIB.q = e.target.value; draw(); });
@@ -687,7 +688,7 @@ route(/^#\/exercicio\/(\d+)$/, async id => {
     <div class="media-box">${raw(mediaTag(info.media, 'Animação: ' + e.name, 'ex-big'))}</div>
     ${info.rep_def ? raw(html`<div class="card"><h3>O que é uma repetição</h3><p style="margin:0">${info.rep_def}</p>${info.pace ? raw(html`<p class="small muted" style="margin:6px 0 0">Ritmo: ${info.pace}</p>`) : ''}</div>`) : ''}
     ${info.steps?.length ? raw(html`<div class="card"><h3>Como fazer</h3>${raw(ol(info.steps, 'ol'))}${info.tips?.length ? raw(html`<h3 style="margin-top:12px">Dicas</h3>${raw(ol(info.tips, 'ul'))}`) : ''}${info.mistakes?.length ? raw(html`<h3 style="margin-top:12px">Evite</h3>${raw(ol(info.mistakes, 'ul'))}`) : ''}</div>`) : ''}
-    ${series.length ? raw(html`
+    ${S.user.role !== 'aluno' ? '' : series.length ? raw(html`
       <div class="day-h">Meu histórico</div>
       <div class="grid3" style="margin-bottom:12px">
         ${t ? raw(html`<div class="stat"><b>${d.records.maxreps}s</b><span>melhor tempo</span></div>`) : raw(html`<div class="stat"><b>${fmtNum(d.records.e1rm, 1)}</b><span>1RM estimado (${unit()})</span></div><div class="stat"><b>${fmtNum(d.records.maxw, 2)}</b><span>maior carga (${unit()})</span></div>`)}
@@ -729,15 +730,16 @@ route(/^#\/historico$/, async () => {
 });
 
 /* ---- Mais / Configurações ---- */
-route(/^#\/config$/, () => S.user.role === 'aluno' ? configAluno() : configStaff());
+route(/^#\/config$/, () => S.user.role === 'aluno' ? configAluno() : configStaff(), { after: () => mountMais() });
 const configAluno = () => html`
   <div class="page-title"><h1>Mais</h1></div>
+  ${raw(extraMais())}
   <div class="card"><h3>Perfil</h3>
     <form data-form="profile" style="margin-top:10px">
       <label class="f">Nome<input class="in" name="name" value="${S.user.name}" maxlength="80" required></label>
       <div class="grid2"><label class="f">Unidade de carga<select class="in" name="unit"><option value="kg" ${S.user.unit === 'kg' ? raw('selected') : ''}>Quilos (kg)</option><option value="lb" ${S.user.unit === 'lb' ? raw('selected') : ''}>Libras (lb)</option></select></label>
       <label class="f">Semana começa<select class="in" name="week_start"><option value="1" ${S.user.week_start === 1 ? raw('selected') : ''}>Segunda</option><option value="0" ${S.user.week_start === 0 ? raw('selected') : ''}>Domingo</option></select></label></div>
-      <label class="f">WhatsApp (com DDD)<input class="in" name="whatsapp" type="tel" inputmode="tel" value="${S.user.whatsapp || ''}" required></label>
+      ${raw(waField('whatsapp', 'WhatsApp (usado para redefinir a senha)', S.user.whatsapp || ''))}
       <label class="f">Avaliações com fotos a cada<select class="in" name="eval_every_days">${[15, 30, 45, 60].map(d => raw(html`<option value="${d}" ${S.user.eval_every_days === d ? raw('selected') : ''}>${d} dias</option>`))}</select></label>
       <p class="small muted">Trocar a unidade muda só o rótulo: os números já registrados não são convertidos.</p>
       <p class="small muted">E-mail: ${S.user.email}${S.user.company_name ? ' · ' + S.user.company_name : ''}${S.user.access_until ? ' · acesso até ' + new Date(S.user.access_until + 'T12:00').toLocaleDateString('pt-BR') : ''}</p>
@@ -747,8 +749,8 @@ const configAluno = () => html`
   <div class="card"><h3>Seus dados</h3><p class="small muted">Exporte tudo quando quiser. É seu.</p>
     <div class="grid2"><a class="btn" href="api/export.csv" download>Planilha (CSV)</a><a class="btn" href="api/export.json" download>Backup (JSON)</a></div></div>
   <div class="card"><h3>Trocar senha</h3>
-    <form data-form="password" style="margin-top:10px"><label class="f">Senha atual<input class="in" type="password" name="current" autocomplete="current-password" required></label>
-      <label class="f">Nova senha (mín. 8)<input class="in" type="password" name="new" autocomplete="new-password" minlength="8" required></label>
+    <form data-form="password" style="margin-top:10px">${raw(pwField('current', 'Senha atual'))}
+      ${raw(pwField('new', 'Nova senha', { auto: 'new-password', rules: true }))}
       <button class="btn block" type="submit">Trocar senha</button></form></div>
   <div class="card"><div class="stack"><button class="btn block" data-act="logout">Sair</button><button class="btn danger block" data-act="delete-account">Excluir minha conta</button></div></div>
   <p class="center small muted">Meus Treinos · v${S.version || ''}</p>`;
@@ -923,30 +925,7 @@ const acts = {
 let authModeVal = 'login';
 function authMode(m) { authModeVal = m; S.denied = null; renderAuth(); }
 function renderAuth() { $('#app').innerHTML = authView(authModeVal); }
-function authView(mode) {
-  const reg = mode === 'register';
-  if (mode === 'pending') return html`<div class="auth">
-    <img class="logo sm" src="${S.brand?.logo || 'assets/img/logo-icone.svg'}" alt="">
-    <div class="card hl center"><div class="eyebrow">Cadastro enviado</div><h2 style="margin:6px 0 8px">Falta pouco!</h2><p class="muted" style="margin:0">${S.pendingMsg}</p></div>
-    <button class="btn block" data-act="auth-toggle" data-mode="login">Voltar para o login</button></div>`;
-  return html`<div class="auth">
-    <img class="logo ${S.brand?.logo ? 'custom' : 'sm'}" src="${S.brand?.logo || 'assets/img/logo-icone.svg'}" alt="${S.brand?.app_name || ''}">
-    <h1>${reg ? 'Criar conta' : (S.brand?.app_name || 'Meus Treinos')}</h1>
-    <p class="sub">${reg ? 'Use o código que a sua academia ou o seu personal te passou.' : (S.brand?.slogan || '')}</p>
-    ${S.denied ? raw(html`<div class="err" role="alert">${S.denied}</div>`) : ''}
-    <div id="auth-err"></div>
-    <form data-form="${reg ? 'register' : 'login'}" novalidate>
-      ${reg ? raw(html`<label class="f">Código da empresa<input class="in" name="company_code" autocomplete="off" autocapitalize="characters" maxlength="12" required placeholder="Ex.: K7M2QX9P"></label>
-        <label class="f">Nome<input class="in" name="name" autocomplete="name" required maxlength="80"></label>
-        <label class="f">WhatsApp (com DDD)<input class="in" name="whatsapp" type="tel" inputmode="tel" autocomplete="tel" required placeholder="(85) 98888-7777"></label>`) : ''}
-      <label class="f">E-mail<input class="in" type="email" name="email" autocomplete="email" inputmode="email" required></label>
-      <label class="f">Senha${reg ? ' (mín. 8 caracteres)' : ''}<input class="in" type="password" name="password" autocomplete="${reg ? 'new-password' : 'current-password'}" required minlength="8"></label>
-      <button class="btn primary block" type="submit">${reg ? 'Enviar cadastro' : 'Entrar'}</button>
-    </form>
-    ${S.registration ? raw(html`<p class="center small" style="margin-top:18px">${reg ? 'Já tem conta?' : 'Primeira vez?'} <a href="#" data-act="auth-toggle" data-mode="${reg ? 'login' : 'register'}">${reg ? 'Entrar' : 'Criar conta'}</a></p>`) : ''}
-    <div class="credit"><a href="https://ariceliomoura.com.br/" target="_blank" rel="noopener">Desenvolvido por Aricelio Moura</a></div>
-  </div>`;
-}
+function authView(mode) { return authViewV3(mode); } // telas de acesso: assets/js/financeiro.js
 
 document.addEventListener('click', e => {
   const a = e.target.closest('[data-act]');
@@ -955,7 +934,11 @@ document.addEventListener('click', e => {
 });
 
 const forms = {
-  login: async d => { S.denied = null; await api('POST', 'login', d); await boot(); go(homeFor(S.user.role)); },
+  login: async d => {
+    S.denied = null; S.renew = null;
+    try { await api('POST', 'login', d); } catch (e) { if (e.code === 'expired_renewable') S.renew = { email: d.email, password: d.password }; throw e; }
+    await boot(); go(homeFor(S.user.role));
+  },
   register: async d => { const r = await api('POST', 'register', d); S.pendingMsg = r.message; authModeVal = 'pending'; renderAuth(); },
   exercise: async (d, f) => {
     const id = f.dataset.id, file = d.file; delete d.file;
@@ -975,7 +958,7 @@ document.addEventListener('submit', async e => {
     await forms[f.dataset.form](Object.fromEntries(new FormData(f)), f);
   } catch (err) {
     const box = $('#auth-err');
-    if (box && /^(login|register)$/.test(f.dataset.form)) box.innerHTML = `<div class="err" role="alert">${esc(err.message)}</div>`; else toast(err.message, true);
+    if (box && /^(login|register|forgot|reset|renew)/.test(f.dataset.form)) box.innerHTML = `<div class="err" role="alert">${esc(err.message)}</div>${S.renew && f.dataset.form === 'login' ? '<button type="button" class="btn primary block" style="margin-bottom:12px" data-act="renew-open">Renovar a minha assinatura agora</button>' : ''}`; else toast(err.message, true);
   } finally { btn && (btn.disabled = false); }
 });
 

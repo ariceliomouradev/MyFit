@@ -1,0 +1,69 @@
+/* V3: olho da senha, regras de senha, data, financeiro, indicação e PIX */
+
+/* Campo de senha com olho */
+.pw{position:relative;display:block;margin-top:8px}
+.pw .in{margin-top:0;padding-right:52px}
+.pw .eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:40px;height:40px;display:grid;place-items:center;background:transparent;border:0;border-radius:10px;color:var(--muted);cursor:pointer}
+.pw .eye:hover,.pw .eye[aria-pressed=true]{color:var(--ambar)}
+.pw .eye svg{width:22px;height:22px}
+.pw .eye:focus-visible{outline:2px solid var(--ambar);outline-offset:1px}
+
+/* Regras de senha: cada item acende ao ser cumprido */
+.pwrules{list-style:none;margin:-6px 0 16px;padding:12px 14px;background:var(--superficie);border:1px solid var(--borda);border-radius:12px;display:grid;gap:6px;font-size:.85rem}
+.pwrules .pwr-t{font-size:.75rem;font-weight:700;letter-spacing:.3px;color:var(--muted);text-transform:uppercase}
+.pwrules li[data-r]{display:flex;align-items:center;gap:8px;color:var(--muted)}
+.pwrules li[data-r] i{width:18px;height:18px;border-radius:99px;border:1.5px solid var(--borda);display:grid;place-items:center;color:transparent;flex:none}
+.pwrules li[data-r] i svg{width:11px;height:11px}
+.pwrules li[data-r].ok{color:var(--texto)}
+.pwrules li[data-r].ok i{background:var(--ok);border-color:var(--ok);color:#0b1a10}
+
+/* Caixas de aviso e de indicação */
+.infobox{display:flex;gap:10px;align-items:flex-start;padding:12px;margin:0 0 16px;background:color-mix(in srgb,#4da3ff 12%,transparent);border-radius:12px;font-size:.85rem;line-height:1.45}
+.infobox svg{width:20px;height:20px;flex:none;color:#4da3ff}
+.refbox{padding:14px;margin:0 0 16px;border:1px solid color-mix(in srgb,var(--ambar) 55%,transparent);background:color-mix(in srgb,var(--ambar) 9%,transparent);border-radius:14px}
+.refbox b{color:var(--ambar)}
+.ic{display:inline-grid;place-items:center;width:34px;height:34px;border-radius:10px;background:color-mix(in srgb,var(--ambar) 16%,transparent);color:var(--ambar);flex:none}
+.ic svg{width:20px;height:20px}
+.ic.big{width:56px;height:56px;border-radius:18px;margin-bottom:6px}.ic.big svg{width:30px;height:30px}
+.right{text-align:right}
+.refcode{font:800 1.7rem/1.2 var(--fonte-titulo);letter-spacing:2px;color:var(--ambar);margin:2px 0}
+.bigmoney{font:800 2.2rem/1.1 var(--fonte-titulo);color:var(--ok);margin:2px 0 4px}
+
+/* Datas (período "Outro"): ícone do calendário visível e com respiro da borda */
+input.in[type=date]{appearance:none;-webkit-appearance:none;min-height:48px;padding-right:48px;color-scheme:dark;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' viewBox='0 0 24 24' fill='none' stroke='%23f5a524' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='5' width='18' height='16' rx='2'/%3E%3Cpath d='M3 10h18M8 3v4M16 3v4'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 14px center;background-size:22px}
+input.in[type=date]::-webkit-calendar-picker-indicator{opacity:0;position:absolute;right:0;top:0;width:52px;height:100%;cursor:pointer}
+input.in[type=date]{position:relative}
+.period-custom{margin-top:10px}.period-custom[hidden]{display:none}
+.period-custom .lbl{display:block;font-size:.8rem;font-weight:600;color:var(--texto-suave)}
+
+/* Planos para escolher */
+.plan-choices{display:grid;gap:10px;margin:0 0 14px}
+.plancard{display:flex;align-items:center;gap:12px;padding:14px;border:1.5px solid var(--borda);border-radius:14px;background:var(--superficie);cursor:pointer}
+.plancard:has(input:checked){border-color:var(--ambar);background:color-mix(in srgb,var(--ambar) 8%,var(--superficie))}
+.plancard input{accent-color:var(--ambar);width:20px;height:20px;flex:none}
+.pc-main{display:grid;gap:2px;flex:1;min-width:0}.pc-price{text-align:right;font-size:1.05rem;white-space:nowrap}
+
+/* PIX */
+.qrbox{display:grid;place-items:center;padding:12px;background:#fff;border-radius:16px;margin:6px auto;width:max-content;max-width:100%}
+.qrbox img{display:block;max-width:100%;height:auto}
+textarea.mono,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+textarea.mono{font-size:.75rem;word-break:break-all;resize:none}
+.okmark{width:64px;height:64px;border-radius:99px;background:var(--ok);color:#0b1a10;display:grid;place-items:center;margin:0 auto 10px}
+.okmark svg{width:34px;height:34px}
+
+/* Financeiro */
+.stat.big{padding:14px}.stat.big b{font-size:1.45rem}
+.stat em{display:block;font-style:normal;font-size:.78rem;font-weight:700;margin-top:2px}.stat em.up{color:var(--ok)}.stat em.dn{color:var(--erro)}
+.bars{display:flex;align-items:flex-end;gap:8px;height:170px;margin-top:8px}
+.bcol{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:4px;min-width:0}
+.bar{width:100%;max-width:44px;border-radius:8px 8px 4px 4px;background:color-mix(in srgb,var(--ambar) 38%,transparent);min-height:3px}
+.bar.cur{background:var(--ambar)}
+.bv{font-size:.66rem;color:var(--muted);white-space:nowrap}.bl{font-size:.72rem;color:var(--muted);text-transform:capitalize}
+.neg{color:var(--erro)}.pos{color:var(--ok)}
+.linkcard{display:flex;align-items:center;gap:12px;text-decoration:none;color:inherit}
+.linkcard .chev{margin-left:auto;color:var(--muted);font-size:1.4rem}
+.media-box.small{max-height:170px;overflow:hidden;border-radius:12px}
+.media-box.small img{max-height:170px;object-fit:contain}
+.locked{display:block;margin-top:8px;padding:12px 14px;background:var(--superficie);border:1px dashed var(--borda);border-radius:12px;color:var(--texto-suave);font-weight:500}

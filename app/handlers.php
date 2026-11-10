@@ -38,11 +38,13 @@ function login_session(int $uid, int $pwdVersion = 0): void
     $_SESSION['csrf'] = bin2hex(random_bytes(24));
 }
 
+/** WhatsApp brasileiro de celular: DDD + 9 + 8 dígitos (o 55 do país é aceito e removido). Guarda só os 11 números. */
 function norm_whatsapp(mixed $v, bool $required = true): ?string
 {
     $d = preg_replace('/\D+/', '', (string) $v) ?? '';
     if ($d === '') { if ($required) fail('Informe o WhatsApp com DDD.'); return null; }
-    if (strlen($d) < 10 || strlen($d) > 15) fail('WhatsApp inválido: informe DDD e número (ex.: 85 98888-7777).');
+    if (strlen($d) === 13 && str_starts_with($d, '55')) $d = substr($d, 2);
+    if (!preg_match('/^[1-9][1-9]9\d{8}$/', $d)) fail('WhatsApp inválido: informe DDD e número, como (85) 9 8888-7777.');
     return $d;
 }
 
@@ -60,17 +62,23 @@ function h_register(array $p): void
     if (!cfg('allow_registration', true)) fail('O auto-cadastro está fechado. Peça à sua empresa para criar o seu acesso.', 403);
     $in = body();
     $name  = v_str($in['name'] ?? null, 'Nome', 2, 80);
-    $email = strtolower(v_str($in['email'] ?? null, 'E-mail', 5, 190));
-    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) fail('E-mail inválido.');
+    $email = valid_email($in['email'] ?? null);
     $wa = norm_whatsapp($in['whatsapp'] ?? '');
-    $pass = $in['password'] ?? '';
-    if (!is_string($pass) || strlen($pass) < 8 || strlen($pass) > 200) fail('A senha precisa ter pelo menos 8 caracteres.');
+    $pass = require_strong_password($in['password'] ?? '');
     $code = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', is_string($in['company_code'] ?? null) ? $in['company_code'] : '') ?? '');
     $company = $code === '' ? null : Db::one("SELECT id,name,status FROM companies WHERE code=?", [$code]);
     if (!$company || $company['status'] !== 'ativa') fail('Código da empresa inválido. Peça o código ao seu personal ou à academia.');
+    // Código de indicação (opcional): precisa ser de um aluno ou personal ATIVO da mesma empresa.
+    $ref = null;
+    $rc = strtoupper(trim(is_string($in['referral_code'] ?? null) ? $in['referral_code'] : ''));
+    if ($rc !== '') {
+        $ref = Db::one("SELECT id FROM users WHERE referral_code=? AND company_id=? AND status='ativo' AND role IN ('aluno','personal')", [$rc, $company['id']]);
+        if (!$ref) fail('Código de indicação inválido para esta empresa. Confira com quem indicou ou deixe em branco.');
+    }
     if (Db::val('SELECT 1 FROM users WHERE email=?', [$email])) fail('Este e-mail já está cadastrado.', 409);
     Db::run("INSERT INTO users (name,email,password_hash,whatsapp,role,status,company_id,created_at) VALUES (?,?,?,?, 'aluno','pendente',?,?)",
         [$name, $email, hash_pw($pass), $wa, $company['id'], now()]);
+    if ($ref) Db::run('INSERT INTO referrals (company_id,referrer_id,referred_id,created_at) VALUES (?,?,?,?)', [$company['id'], $ref['id'], Db::id(), now()]);
     j(['pending' => true, 'company' => $company['name'], 'message' => 'Cadastro enviado! Assim que a ' . $company['name'] . ' aprovar, você poderá entrar.'], 201);
 }
 
@@ -86,7 +94,7 @@ function h_login(array $p): void
     $okPass = password_verify($pass, $row['password_hash'] ?? DUMMY_HASH);
     if (!$row || !$okPass) fail('E-mail ou senha incorretos.', 401);
     // A senha está certa: agora conferimos aprovação, bloqueio e validade (e dizemos o motivo).
-    if ($reason = access_denied_reason($row)) fail($reason, 403);
+    if ($reason = access_denied_reason($row)) j(['error' => $reason, 'code' => can_self_renew($row) ? 'expired_renewable' : ($row['status'] === 'pendente' ? 'pending' : 'expired')], 403);
     if (password_needs_rehash($row['password_hash'], PASSWORD_BCRYPT, ['cost' => PW_COST])) {
         Db::run('UPDATE users SET password_hash=? WHERE id=?', [hash_pw($pass), $row['id']]);
     }
@@ -111,7 +119,7 @@ function h_me_update(array $p, array $u): void
     $name = v_str($in['name'] ?? $u['name'], 'Nome', 2, 80);
     $unit = ($in['unit'] ?? $u['unit']) === 'lb' ? 'lb' : 'kg';
     $ws   = v_int($in['week_start'] ?? $u['week_start'], 'Início da semana', 0, 1);
-    $wa = array_key_exists('whatsapp', $in) ? norm_whatsapp($in['whatsapp'], $u['role'] === 'aluno') : $u['whatsapp'];
+    $wa = array_key_exists('whatsapp', $in) ? norm_whatsapp($in['whatsapp'], $u['role'] !== 'super') : $u['whatsapp'];
     $every = v_int($in['eval_every_days'] ?? $u['eval_every_days'], 'Intervalo das avaliações', 7, 120);
     Db::run('UPDATE users SET name=?, unit=?, week_start=?, whatsapp=?, eval_every_days=? WHERE id=?', [$name, $unit, $ws, $wa, $every, $u['id']]);
     j(['user' => user_public(array_merge($u, ['name' => $name, 'unit' => $unit, 'week_start' => $ws, 'whatsapp' => $wa, 'eval_every_days' => $every]))]);
@@ -122,8 +130,7 @@ function h_password(array $p, array $u): void
     $in = body();
     $row = Db::one('SELECT password_hash FROM users WHERE id=?', [$u['id']]);
     if (!password_verify(is_string($in['current'] ?? null) ? $in['current'] : '', $row['password_hash'])) fail('Senha atual incorreta.', 403);
-    $new = $in['new'] ?? '';
-    if (!is_string($new) || strlen($new) < 8 || strlen($new) > 200) fail('A nova senha precisa ter pelo menos 8 caracteres.');
+    $new = require_strong_password($in['new'] ?? '');
     if (hash_equals(is_string($in['current'] ?? null) ? $in['current'] : '', $new)) fail('A nova senha precisa ser diferente da atual.');
     Db::run('UPDATE users SET password_hash=?, must_change_password=0, pwd_version=pwd_version+1 WHERE id=?', [hash_pw($new), $u['id']]);
     start_session(); $_SESSION['pv'] = (int) Db::val('SELECT pwd_version FROM users WHERE id=?', [$u['id']]);
@@ -153,6 +160,7 @@ function ex_out(array $r, bool $full = false): array
           'type' => $r['type'], 'mine' => $r['user_id'] !== null, 'shared' => $r['company_id'] !== null && $r['user_id'] === null, 'media' => $r['media'] ?? null,
           'level' => (int) ($r['level'] ?? 1), 'environment' => $r['environment'] ?? 'ambos', 'role' => $r['role'] ?? 'composto',
           'impact' => $r['impact'] ?? 'baixo', 'target' => $r['target'] ?? null,
+          'share' => $r['share_status'] ?? 'privado', 'share_note' => $r['share_note'] ?? null,
           'secondary' => ($r['secondary'] ?? '') === '' || ($r['secondary'] ?? null) === null ? [] : explode(',', $r['secondary'])];
     if ($full) {
         $dec = static fn($v) => $v ? (json_decode($v, true) ?: []) : [];
@@ -202,6 +210,7 @@ function ex_input(): array
 
 function h_exercise_create(array $p, array $u): void
 {
+    require_role($u, 'personal', 'admin', 'super'); // aluno não cria exercício: só consulta a lista
     [$name, $muscle, $equip, $type] = ex_input();
     if ((int) Db::val('SELECT COUNT(*) FROM exercises WHERE user_id=?', [$u['id']]) >= 30) fail('Você já tem 30 exercícios próprios. Exclua algum para criar outro.', 422);
     if (Db::val('SELECT 1 FROM exercises WHERE name=? AND (user_id=? OR (user_id IS NULL AND (company_id IS NULL OR company_id=?)))', [$name, $u['id'], $u['company_id']])) fail('Já existe um exercício com esse nome.', 409);

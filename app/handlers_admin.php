@@ -32,24 +32,51 @@ function company_out(array $c): array
     return ['id' => (int) $c['id'], 'name' => $c['name'], 'code' => $c['code'], 'status' => $c['status'], 'access_until' => $until,
             'days_left' => $until ? (int) floor((strtotime($until) - strtotime(date('Y-m-d'))) / 86400) : null,
             'users' => (int) ($c['n_users'] ?? 0), 'pending' => (int) ($c['n_pending'] ?? 0), 'alunos' => (int) ($c['n_alunos'] ?? 0),
-            'personals' => (int) ($c['n_personals'] ?? 0), 'admins' => $c['admins'] ?? []];
+            'personals' => (int) ($c['n_personals'] ?? 0), 'admins' => $c['admins'] ?? [],
+            'plan_id' => isset($c['plan_id']) ? (int) $c['plan_id'] : null, 'plan_name' => $c['plan_name'] ?? null,
+            'max_personals' => isset($c['max_personals']) ? (int) $c['max_personals'] : null, 'max_students' => isset($c['max_students']) ? (int) $c['max_students'] : null,
+            'alunos_ativos' => (int) ($c['n_alunos_ativos'] ?? 0)];
+}
+
+/** Garante que a empresa não passe do limite do plano (NULL = sem plano definido ou ilimitado). */
+function plan_limit_check(int $cid, string $role, ?int $ignoreUserId = null): void
+{
+    $c = Db::one('SELECT p.name, p.max_personals, p.max_students FROM companies c LEFT JOIN plans p ON p.id=c.plan_id WHERE c.id=?', [$cid]);
+    if (!$c || $c['name'] === null) return;
+    if ($role === 'personal' && $c['max_personals'] !== null) {
+        $n = (int) Db::val("SELECT COUNT(*) FROM users WHERE company_id=? AND role='personal' AND status<>'bloqueado' AND id<>?", [$cid, $ignoreUserId ?? 0]);
+        if ($n >= (int) $c['max_personals']) fail("O plano {$c['name']} permite {$c['max_personals']} " . ((int) $c['max_personals'] === 1 ? 'personal' : 'personais') . ' e o limite foi atingido. Fale com o gestor para trocar de plano.', 409);
+    }
+    if ($role === 'aluno' && $c['max_students'] !== null) {
+        $n = (int) Db::val("SELECT COUNT(*) FROM users WHERE company_id=? AND role='aluno' AND status='ativo' AND id<>?", [$cid, $ignoreUserId ?? 0]);
+        if ($n >= (int) $c['max_students']) fail("O plano {$c['name']} permite {$c['max_students']} alunos ativos e o limite foi atingido. Fale com o gestor para trocar de plano.", 409);
+    }
 }
 
 function companies_query(?int $only = null): array
 {
-    $rows = Db::all("SELECT c.*,
+    $rows = Db::all("SELECT c.*, pl.name plan_name, pl.max_personals, pl.max_students,
+        (SELECT COUNT(*) FROM users u WHERE u.company_id=c.id AND u.role='aluno' AND u.status='ativo') n_alunos_ativos,
         (SELECT COUNT(*) FROM users u WHERE u.company_id=c.id) n_users,
         (SELECT COUNT(*) FROM users u WHERE u.company_id=c.id AND u.status='pendente') n_pending,
         (SELECT COUNT(*) FROM users u WHERE u.company_id=c.id AND u.role='aluno') n_alunos,
         (SELECT COUNT(*) FROM users u WHERE u.company_id=c.id AND u.role='personal') n_personals
-        FROM companies c" . ($only ? ' WHERE c.id=?' : '') . ' ORDER BY c.name', $only ? [$only] : []);
+        FROM companies c LEFT JOIN plans pl ON pl.id=c.plan_id" . ($only ? ' WHERE c.id=?' : '') . ' ORDER BY c.name', $only ? [$only] : []);
     foreach ($rows as &$r) {
         $r['admins'] = Db::all("SELECT id,name,email,whatsapp FROM users WHERE company_id=? AND role='admin' ORDER BY id", [$r['id']]);
     }
     return array_map('company_out', $rows);
 }
 
-function h_companies(array $p, array $u): void { require_role($u, 'super'); j(['companies' => companies_query()]); }
+function plan_id_or_null(mixed $v): ?int
+{
+    if ($v === null || $v === '' || $v === 0 || $v === '0') return null;
+    $id = (int) $v;
+    if (!Db::val('SELECT 1 FROM plans WHERE id=?', [$id])) fail('Plano não encontrado.');
+    return $id;
+}
+
+function h_companies(array $p, array $u): void { require_role($u, 'super'); j(['companies' => companies_query(), 'plans' => plans_list()]); }
 
 function h_company_create(array $p, array $u): void
 {
@@ -59,17 +86,16 @@ function h_company_create(array $p, array $u): void
     $until = period_to_date($in['period'] ?? null, $in['custom'] ?? null);
     $a = $in['admin'] ?? [];
     $aname = v_str($a['name'] ?? null, 'Nome do administrador', 2, 80);
-    $aemail = strtolower(v_str($a['email'] ?? null, 'E-mail do administrador', 5, 190));
-    if (!filter_var($aemail, FILTER_VALIDATE_EMAIL)) fail('E-mail do administrador inválido.');
-    $apass = $a['password'] ?? '';
-    if (!is_string($apass) || strlen($apass) < 8) fail('A senha do administrador precisa ter pelo menos 8 caracteres.');
-    $awa = norm_whatsapp($a['whatsapp'] ?? '', false);
+    $aemail = valid_email($a['email'] ?? null, 'E-mail do administrador');
+    $apass = require_strong_password($a['password'] ?? '');
+    $awa = norm_whatsapp($a['whatsapp'] ?? '');
+    $planId = plan_id_or_null($in['plan_id'] ?? null);
     if (Db::val('SELECT 1 FROM users WHERE email=?', [$aemail])) fail('Já existe um usuário com o e-mail do administrador.', 409);
 
     $pdo = Db::pdo();
     $pdo->beginTransaction();
     try {
-        Db::run("INSERT INTO companies (name,code,status,access_until,created_at) VALUES (?,?, 'ativa',?,?)", [$name, company_code(), $until, now()]);
+        Db::run("INSERT INTO companies (name,code,status,access_until,plan_id,created_at) VALUES (?,?, 'ativa',?,?,?)", [$name, company_code(), $until, $planId, now()]);
         $cid = Db::id();
         Db::run("INSERT INTO users (name,email,password_hash,whatsapp,role,status,company_id,created_at,approved_at,must_change_password) VALUES (?,?,?,?, 'admin','ativo',?,?,?,1)",
             [$aname, $aemail, hash_pw($apass), $awa, $cid, now(), now()]);
@@ -89,7 +115,8 @@ function h_company_update(array $p, array $u): void
     $until = $c['access_until'];
     if (!empty($in['period'])) $until = period_to_date($in['period'], $in['custom'] ?? null, !empty($in['extend']) ? $c['access_until'] : null);
     $code = !empty($in['new_code']) ? company_code() : $c['code'];
-    Db::run('UPDATE companies SET name=?, status=?, access_until=?, code=? WHERE id=?', [$name, $status, $until, $code, $c['id']]);
+    $planId = array_key_exists('plan_id', $in) ? plan_id_or_null($in['plan_id']) : $c['plan_id'];
+    Db::run('UPDATE companies SET name=?, status=?, access_until=?, code=?, plan_id=? WHERE id=?', [$name, $status, $until, $code, $planId, $c['id']]);
     j(['company' => companies_query((int) $c['id'])[0]]);
 }
 
@@ -187,14 +214,13 @@ function h_user_create(array $p, array $u): void
     $allowed = $u['role'] === 'super' ? ['aluno', 'personal', 'admin'] : ['aluno', 'personal'];
     if (!in_array($role, $allowed, true)) fail('Perfil inválido.');
     $name = v_str($in['name'] ?? null, 'Nome', 2, 80);
-    $email = strtolower(v_str($in['email'] ?? null, 'E-mail', 5, 190));
-    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) fail('E-mail inválido.');
-    $pass = $in['password'] ?? '';
-    if (!is_string($pass) || strlen($pass) < 8) fail('A senha precisa ter pelo menos 8 caracteres.');
-    $wa = norm_whatsapp($in['whatsapp'] ?? '', $role === 'aluno');
+    $email = valid_email($in['email'] ?? null);
+    $pass = require_strong_password($in['password'] ?? '');
+    $wa = norm_whatsapp($in['whatsapp'] ?? '');
     $until = $role === 'admin' ? null : period_to_date($in['period'] ?? null, $in['custom'] ?? null);
-    $pid = $role === 'aluno' ? valid_personal(isset($in['personal_id']) ? (int) $in['personal_id'] : null, $cid) : null;
+    $pid = $role === 'aluno' ? valid_personal(isset($in['personal_id']) && $in['personal_id'] !== '' ? (int) $in['personal_id'] : null, $cid) : null; // personal e administrador nunca têm "personal responsável"
     if (Db::val('SELECT 1 FROM users WHERE email=?', [$email])) fail('Este e-mail já está cadastrado.', 409);
+    if (in_array($role, ['aluno', 'personal'], true)) plan_limit_check($cid, $role);
     Db::run("INSERT INTO users (name,email,password_hash,whatsapp,role,status,company_id,personal_id,access_until,created_at,approved_at,must_change_password) VALUES (?,?,?,?,?, 'ativo',?,?,?,?,?,1)",
         [$name, $email, hash_pw($pass), $wa, $role, $cid, $pid, $until, now(), now()]);
     j(['user' => manage_user_row(Db::id())], 201);
@@ -206,8 +232,13 @@ function h_user_approve(array $p, array $u): void
     if ($t['status'] !== 'pendente') fail('Este cadastro já foi analisado.', 409);
     $in = body();
     $until = period_to_date($in['period'] ?? null, $in['custom'] ?? null);
+    plan_limit_check((int) $t['company_id'], $t['role']);
     $pid = valid_personal(isset($in['personal_id']) && $in['personal_id'] !== '' ? (int) $in['personal_id'] : null, (int) $t['company_id']);
+    // Aluno que veio pelo código de um personal fica com ele, se o administrador não escolher outro.
+    $ref = Db::one("SELECT r.id, r.referrer_id, u.role FROM referrals r JOIN users u ON u.id=r.referrer_id WHERE r.referred_id=?", [$t['id']]);
+    if (!$pid && $ref && $ref['role'] === 'personal') $pid = valid_personal((int) $ref['referrer_id'], (int) $t['company_id']);
     Db::run("UPDATE users SET status='ativo', access_until=?, approved_at=?, personal_id=? WHERE id=?", [$until, now(), $pid, $t['id']]);
+    if ($ref) Db::run('UPDATE referrals SET activated_at=? WHERE id=? AND activated_at IS NULL', [now(), $ref['id']]); // a indicação passa a valer: desconto para quem indicou
     audit($u, (int) $t['id'], 'aprovado', 'validade até ' . $until . ($pid ? ', personal #' . $pid : ''));
     j(['user' => manage_user_row((int) $t['id'])]);
 }
@@ -218,17 +249,19 @@ function h_user_update(array $p, array $u): void
     $in = body();
     $self = (int) $t['id'] === (int) $u['id'];
     $name = isset($in['name']) ? v_str($in['name'], 'Nome', 2, 80) : $t['name'];
-    $wa = array_key_exists('whatsapp', $in) ? norm_whatsapp($in['whatsapp'], $t['role'] === 'aluno') : $t['whatsapp'];
+    $wa = array_key_exists('whatsapp', $in) ? norm_whatsapp($in['whatsapp']) : $t['whatsapp'];
     $status = $t['status'];
     if (isset($in['status'])) {
         if (!in_array($in['status'], ['ativo', 'bloqueado'], true)) fail('Status inválido.');
         if ($self && $in['status'] !== 'ativo') fail('Você não pode bloquear a si mesmo.');
         if ($t['status'] === 'pendente') fail('Use "Aprovar" para liberar um cadastro pendente: é lá que se escolhe o período de acesso.');
+        if ($t['status'] === 'bloqueado' && $in['status'] === 'ativo') plan_limit_check((int) $t['company_id'], $t['role'], (int) $t['id']);
         $status = $in['status'];
     }
     $role = $t['role'];
     if (isset($in['role']) && $in['role'] !== $t['role']) {
-        $allowed = $u['role'] === 'super' ? ['aluno', 'personal', 'admin'] : ['aluno', 'personal'];
+        if ($t['role'] === 'aluno') fail('O perfil de um aluno não pode ser alterado. Para ter um personal, crie outro cadastro.');
+        $allowed = $u['role'] === 'super' ? ['personal', 'admin'] : ['personal'];
         if ($self || !in_array($in['role'], $allowed, true)) fail('Perfil inválido.');
         $role = $in['role'];
     }
@@ -243,7 +276,7 @@ function h_user_update(array $p, array $u): void
     if ($status !== $t['status']) audit($u, (int) $t['id'], 'status_alterado', $status);
     if ($until !== $t['access_until']) audit($u, (int) $t['id'], 'validade_alterada', 'até ' . ($until ?? 'sem prazo'));
     if (!empty($in['new_password'])) {
-        if (!is_string($in['new_password']) || strlen($in['new_password']) < 8) fail('A nova senha precisa ter pelo menos 8 caracteres.');
+        require_strong_password($in['new_password']);
         Db::run('UPDATE users SET password_hash=?, must_change_password=1, pwd_version=pwd_version+1 WHERE id=?', [hash_pw($in['new_password']), $t['id']]);
         audit($u, (int) $t['id'], 'senha_redefinida', 'pelo ' . ($u['role'] === 'super' ? 'gestor' : 'administrador'));
     }
@@ -413,16 +446,55 @@ function h_company_exercise_save(array $p, array $u): void
     if ($id) {
         $row = Db::one('SELECT * FROM exercises WHERE id=?', [$id]);
         if (!$row || $row['user_id'] !== null || !ex_manageable($row, $u)) fail('Exercício não encontrado.', 404);
-        Db::run('UPDATE exercises SET name=?,muscle=?,equipment=?,type=?,environment=?,role=?,level=?,impact=?,pace=?,rep_def=?,steps=?,tips=?,mistakes=? WHERE id=?',
+        Db::run("UPDATE exercises SET share_status=IF(share_status='pendente','privado',share_status), name=?,muscle=?,equipment=?,type=?,environment=?,role=?,level=?,impact=?,pace=?,rep_def=?,steps=?,tips=?,mistakes=? WHERE id=?",
             [$d['name'], $d['muscle'], $d['equipment'], $d['type'], $d['environment'], $d['role'], $d['level'], $d['impact'], $d['pace'], $d['rep_def'], $d['steps'], $d['tips'], $d['mistakes'], $id]);
     } else {
         $cid = $u['role'] === 'super' ? null : (int) $u['company_id'];
         if (Db::val('SELECT 1 FROM exercises WHERE name=? AND user_id IS NULL AND (company_id IS NULL OR company_id=?)', [$d['name'], $cid ?? 0])) fail('Já existe um exercício com esse nome.', 409);
-        Db::run('INSERT INTO exercises (user_id,company_id,name,muscle,equipment,type,environment,role,level,impact,pace,rep_def,steps,tips,mistakes,created_at) VALUES (NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-            [$cid, $d['name'], $d['muscle'], $d['equipment'], $d['type'], $d['environment'], $d['role'], $d['level'], $d['impact'], $d['pace'], $d['rep_def'], $d['steps'], $d['tips'], $d['mistakes'], now()]);
+        Db::run('INSERT INTO exercises (user_id,company_id,name,muscle,equipment,type,environment,role,level,impact,pace,rep_def,steps,tips,mistakes,author_id,created_at) VALUES (NULL,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            [$cid, $d['name'], $d['muscle'], $d['equipment'], $d['type'], $d['environment'], $d['role'], $d['level'], $d['impact'], $d['pace'], $d['rep_def'], $d['steps'], $d['tips'], $d['mistakes'], $u['id'], now()]);
         $id = Db::id();
     }
     j(['exercise' => ex_out(Db::one('SELECT * FROM exercises WHERE id=?', [$id]), true)], isset($p['id']) ? 200 : 201);
+}
+
+/* ---------- Lista geral do app: o exercício da empresa só entra depois que o gestor geral aprova ---------- */
+function h_exercise_submit(array $p, array $u): void
+{
+    require_role($u, 'personal', 'admin');
+    $row = Db::one('SELECT * FROM exercises WHERE id=? AND user_id IS NULL AND company_id=?', [(int) $p['id'], $u['company_id']]);
+    if (!$row) fail('Exercício não encontrado.', 404);
+    if ($row['share_status'] === 'pendente') fail('Este exercício já está aguardando a aprovação do gestor.', 409);
+    if (empty($row['media'])) fail('Antes de enviar, adicione a animação do exercício.');
+    Db::run("UPDATE exercises SET share_status='pendente', share_note=NULL WHERE id=?", [$row['id']]);
+    audit($u, null, 'exercicio_enviado', $row['name']);
+    j(['exercise' => ex_out(Db::one('SELECT * FROM exercises WHERE id=?', [$row['id']]), true)]);
+}
+
+function h_approvals(array $p, array $u): void
+{
+    require_role($u, 'super');
+    $rows = Db::all("SELECT e.*, c.name company_name, a.name author_name FROM exercises e LEFT JOIN companies c ON c.id=e.company_id LEFT JOIN users a ON a.id=e.author_id
+        WHERE e.share_status='pendente' AND e.company_id IS NOT NULL AND e.user_id IS NULL ORDER BY e.id");
+    j(['exercises' => array_map(fn($r) => ex_out($r, true) + ['company' => $r['company_name'], 'author' => $r['author_name']], $rows)]);
+}
+
+function h_approval_decide(array $p, array $u): void
+{
+    require_role($u, 'super');
+    $row = Db::one("SELECT * FROM exercises WHERE id=? AND share_status='pendente' AND company_id IS NOT NULL AND user_id IS NULL", [(int) $p['id']]);
+    if (!$row) fail('Exercício não encontrado ou já analisado.', 404);
+    $in = body();
+    if (($in['decision'] ?? '') === 'aprovar') {
+        if (Db::val('SELECT 1 FROM exercises WHERE name=? AND user_id IS NULL AND company_id IS NULL', [$row['name']])) fail('Já existe um exercício geral com esse nome. Peça para o autor renomear.', 409);
+        Db::run("UPDATE exercises SET origin_company_id=company_id, company_id=NULL, share_status='aprovado', share_note=NULL WHERE id=?", [$row['id']]);
+        audit($u, null, 'exercicio_aprovado', $row['name']);
+    } else {
+        $why = v_str($in['reason'] ?? null, 'Motivo', 3, 200);
+        Db::run("UPDATE exercises SET share_status='recusado', share_note=? WHERE id=?", [$why, $row['id']]);
+        audit($u, null, 'exercicio_recusado', $row['name']);
+    }
+    j(['ok' => true]);
 }
 
 /** Animação do exercício (GIF, WebP, PNG ou JPG até 4 MB). Vale para exercício próprio ou da empresa. */
@@ -462,7 +534,9 @@ function h_exercise_media(array $p, array $u): void
 
 /* ---------- Registro de atividades ---------- */
 const AUDIT_TEXT = ['fotos_vistas' => 'viu as fotos', 'ficha_vista' => 'abriu a ficha', 'treino_editado' => 'editou o treino', 'personal_alterado' => 'trocou o personal', 'senha_redefinida' => 'redefiniu a senha',
-    'status_alterado' => 'mudou o acesso para', 'validade_alterada' => 'mudou a validade', 'aprovado' => 'aprovou o cadastro', 'usuario_excluido' => 'excluiu'];
+    'status_alterado' => 'mudou o acesso para', 'validade_alterada' => 'mudou a validade', 'aprovado' => 'aprovou o cadastro', 'usuario_excluido' => 'excluiu',
+    'exercicio_enviado' => 'enviou para aprovação', 'exercicio_aprovado' => 'aprovou na lista geral', 'exercicio_recusado' => 'recusou na lista geral',
+    'pagamento' => 'pagamento confirmado', 'pagamento_manual' => 'registrou pagamento', 'comissao_repassada' => 'repassou comissão', 'senha_recuperada' => 'redefiniu a própria senha', 'envio_manual' => 'enviou o link de senha'];
 function audit_out(array $r): array
 {
     return ['when' => iso($r['created_at']), 'action' => $r['action'], 'text' => (AUDIT_TEXT[$r['action']] ?? $r['action']) . ($r['detail'] ? ': ' . $r['detail'] : ''),

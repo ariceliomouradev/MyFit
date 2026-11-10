@@ -42,6 +42,19 @@ function j(mixed $data, int $code = 200): never
     exit;
 }
 function fail(string $msg, int $code = 422): never { j(['error' => $msg], $code); }
+/** Responde já e segue trabalhando (ex.: enviar mensagem): o tempo de resposta não revela se o e-mail existe. */
+function respond_then_continue(array $data): void
+{
+    $json = (string) json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    ignore_user_abort(true);
+    http_response_code(200);
+    header('Content-Type: application/json; charset=utf-8'); header('Cache-Control: no-store'); header('Connection: close'); header('Content-Length: ' . strlen($json));
+    echo $json;
+    while (ob_get_level() > 0) @ob_end_flush();
+    flush();
+    if (function_exists('fastcgi_finish_request')) fastcgi_finish_request();
+    elseif (function_exists('litespeed_finish_request')) litespeed_finish_request();
+}
 
 function body(): array
 {
@@ -102,13 +115,73 @@ function access_denied_reason(array $u): ?string
 {
     if ($u['role'] === 'super') return null;
     if ($u['status'] === 'pendente') return 'Seu cadastro ainda aguarda a aprovação da sua empresa.';
-    if ($u['status'] === 'bloqueado') return 'Seu acesso foi bloqueado. Fale com a sua empresa.';
-    if ($u['company_id'] && ($u['company_status'] ?? 'ativa') === 'suspensa') return 'O acesso da sua empresa está suspenso.';
+    if ($u['status'] === 'bloqueado') return EXPIRED_MSG;
+    if ($u['company_id'] && ($u['company_status'] ?? 'ativa') === 'suspensa') return EXPIRED_MSG;
     $today = date('Y-m-d');
-    if (!empty($u['company_until']) && $u['company_until'] < $today) return 'O acesso da sua empresa expirou. Fale com o gestor.';
-    if (!empty($u['access_until']) && $u['access_until'] < $today) return 'Seu acesso expirou em ' . date('d/m/Y', strtotime($u['access_until'])) . '. Fale com a sua empresa para renovar.';
+    if (!empty($u['company_until']) && $u['company_until'] < $today) return EXPIRED_MSG;
+    if (!empty($u['access_until']) && $u['access_until'] < $today) return EXPIRED_MSG;
     return null;
 }
+const EXPIRED_MSG = 'Sua assinatura expirou. Entre em contato com o seu personal ou com a sua academia para renovar o acesso.';
+/** O usuário pode renovar sozinho? Só quando o acesso DELE venceu (não quando foi bloqueado à mão, nem quando a empresa venceu/foi suspensa). */
+function can_self_renew(array $u): bool
+{
+    return $u['role'] === 'aluno' && $u['status'] === 'ativo' && !empty($u['company_id']) && ($u['company_status'] ?? 'ativa') === 'ativa'
+        && (empty($u['company_until']) || $u['company_until'] >= date('Y-m-d')) && !empty($u['access_until']) && $u['access_until'] < date('Y-m-d');
+}
+
+/* ---------- Senha forte e dados de contato ---------- */
+/** Regra única de senha: 12 a 72 caracteres ASCII visíveis (sem espaço), com minúscula, maiúscula, número e símbolo. (72 = limite do bcrypt.) */
+function pw_policy_error(mixed $p): ?string
+{
+    if (!is_string($p)) return 'Senha inválida.';
+    if (strlen($p) < 12) return 'A senha precisa ter no mínimo 12 caracteres.';
+    if (strlen($p) > 72) return 'A senha pode ter no máximo 72 caracteres.';
+    if (!preg_match('/^[\x21-\x7E]+$/', $p)) return 'Use só letras sem acento, números e símbolos (sem espaços).';
+    if (!preg_match('/[a-z]/', $p)) return 'A senha precisa ter uma letra minúscula.';
+    if (!preg_match('/[A-Z]/', $p)) return 'A senha precisa ter uma letra MAIÚSCULA.';
+    if (!preg_match('/\d/', $p)) return 'A senha precisa ter um número.';
+    if (!preg_match('/[^A-Za-z0-9]/', $p)) return 'A senha precisa ter um símbolo, como # @ ! $ % & * ?';
+    return null;
+}
+function require_strong_password(mixed $p): string { if ($e = pw_policy_error($p)) fail($e); return $p; }
+function valid_email(mixed $v, string $label = 'E-mail'): string
+{
+    $e = strtolower(v_str($v, $label, 5, 190));
+    if (!filter_var($e, FILTER_VALIDATE_EMAIL) || preg_match('/\s/', $e)) fail("$label inválido: use o formato nome@dominio.com.");
+    return $e;
+}
+/** CPF (11 dígitos) ou CNPJ (14) com dígitos verificadores. Devolve só os números. */
+function valid_tax_id(mixed $v): string
+{
+    $d = preg_replace('/\D+/', '', (string) $v) ?? '';
+    $ok = false;
+    if (strlen($d) === 11 && !preg_match('/^(\d)\1{10}$/', $d)) {
+        $ok = true;
+        for ($t = 9; $t < 11; $t++) { $s = 0; for ($i = 0; $i < $t; $i++) $s += (int) $d[$i] * ($t + 1 - $i); if (((10 * $s) % 11) % 10 !== (int) $d[$t]) $ok = false; }
+    } elseif (strlen($d) === 14 && !preg_match('/^(\d)\1{13}$/', $d)) {
+        $ok = true;
+        foreach ([[12, [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]], [13, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]]] as [$pos, $w]) {
+            $s = 0; foreach ($w as $i => $k) $s += (int) $d[$i] * $k; $r = $s % 11; $dv = $r < 2 ? 0 : 11 - $r;
+            if ($dv !== (int) $d[$pos]) $ok = false;
+        }
+    }
+    if (!$ok) fail('Informe um CPF ou CNPJ válido.');
+    return $d;
+}
+function referral_code_for(int $uid): string
+{
+    $c = Db::val('SELECT referral_code FROM users WHERE id=?', [$uid]);
+    if ($c) return $c;
+    $abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    for ($try = 0; $try < 20; $try++) {
+        $c = 'IND-'; for ($i = 0; $i < 6; $i++) $c .= $abc[random_int(0, strlen($abc) - 1)];
+        if (Db::run('UPDATE users SET referral_code=? WHERE id=? AND referral_code IS NULL AND NOT EXISTS (SELECT 1 FROM (SELECT 1 FROM users WHERE referral_code=?) x)', [$c, $uid, $c])->rowCount()) return $c;
+        $got = Db::val('SELECT referral_code FROM users WHERE id=?', [$uid]); if ($got) return $got;
+    }
+    fail('Não consegui gerar o código de indicação. Tente de novo.', 500);
+}
+function brl(int $cents): string { return 'R$ ' . number_format($cents / 100, 2, ',', '.'); }
 
 const USER_SELECT = 'SELECT u.id,u.name,u.email,u.unit,u.week_start,u.role,u.status,u.company_id,u.personal_id,u.whatsapp,u.access_until,u.eval_every_days,u.must_change_password,u.pwd_version,u.password_hash,
                             c.name company_name, c.status company_status, c.access_until company_until

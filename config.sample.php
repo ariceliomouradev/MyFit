@@ -10,4 +10,24 @@ return [
   'timezone'  => 'America/Fortaleza',
   'allow_registration' => true,            // false = ninguém se cadastra sozinho; só entra quem a empresa criar
   'debug'     => false,                    // deixe false em produção
+
+  // Endereço do seu site, SEM barra no fim. É o que vai nos links de redefinição de senha e no aviso do PagBank.
+  // Obrigatório em produção (sem ele, "esqueci a senha" não envia nada). Use https.
+  'app_url'   => 'https://seudominio.com.br',
+
+  // ---- Pagamentos PIX pelo PagBank (opcional: sem isto o app funciona, só não cobra online) ----
+  // env 'sandbox' = testes (dinheiro de mentira) · 'production' = valendo. O token de cada ambiente é diferente.
+  // Gere em: sandbox -> https://portaldev.pagbank.com.br (aba Tokens) · produção -> conta PagBank > Vendas > Integrações > Gerar Token
+  // 'pagbank' => ['token' => 'COLE-O-TOKEN-AQUI', 'env' => 'sandbox'],
+
+  // ---- WhatsApp para enviar a redefinição de senha (opcional) ----
+  // Sem isto (ou se falhar) o app envia por e-mail; se o e-mail também falhar, o link cai na "Fila de envio" do administrador.
+  // Opção 1: API oficial da Meta (WhatsApp Cloud API). Mensagem iniciada pela empresa exige um "template" aprovado com 1 variável de texto.
+  // 'whatsapp' => ['driver' => 'meta', 'phone_id' => 'ID-DO-NUMERO', 'token' => 'TOKEN-PERMANENTE', 'template' => 'redefinir_senha', 'lang' => 'pt_BR'],
+  // Opção 2: um serviço seu (Z-API, Evolution API, n8n...) que receba POST {"to":"5585988887777","text":"..."} com "Authorization: Bearer <secret>".
+  // 'whatsapp' => ['driver' => 'webhook', 'url' => 'https://seu-servico/enviar', 'secret' => 'SEGREDO'],
+
+  // ---- E-mail (usa o envio de e-mail da própria hospedagem) ----
+  // Crie a caixa no hPanel > E-mails e use esse endereço como remetente (melhora a entrega, evita cair no spam).
+  // 'mail_from' => 'nao-responda@seudominio.com.br',
 ];

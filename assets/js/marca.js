@@ -42,9 +42,9 @@ const forcePwdHtml = () => html`<div class="auth">
   <h1>Crie a sua senha</h1><p class="sub">Você entrou com uma senha provisória. Escolha uma senha só sua para continuar.</p>
   <div id="auth-err"></div>
   <form data-form="force-pwd" novalidate>
-    <label class="f">Senha provisória (a que você recebeu)<input class="in" type="password" name="current" autocomplete="current-password" required></label>
-    <label class="f">Nova senha (mín. 8 caracteres)<input class="in" type="password" name="new" autocomplete="new-password" minlength="8" required></label>
-    <label class="f">Repita a nova senha<input class="in" type="password" name="again" autocomplete="new-password" minlength="8" required></label>
+    ${raw(pwField('current', 'Senha provisória (a que você recebeu)'))}
+    ${raw(pwField('new', 'Nova senha', { auto: 'new-password', rules: true }))}
+    ${raw(pwField('again', 'Repita a nova senha', { auto: 'new-password' }))}
     <button class="btn primary block" type="submit">Salvar e entrar</button></form>
   <button class="btn ghost block" style="margin-top:10px" data-act="logout">Sair</button></div>`;
 Object.assign(forms, {

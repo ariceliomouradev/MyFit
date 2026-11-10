@@ -14,6 +14,9 @@ require __DIR__ . '/app/handlers_profile.php';
 require __DIR__ . '/app/handlers_admin.php';
 require __DIR__ . '/app/handlers_eval.php';
 require __DIR__ . '/app/handlers_brand.php';
+require __DIR__ . '/app/notify.php';
+require __DIR__ . '/app/handlers_account.php';
+require __DIR__ . '/app/handlers_finance.php';
 
 // [método, rota, handler, exige login]
 $routes = [
@@ -72,6 +75,37 @@ $routes = [
     ['POST',   'brand/logo',                 'h_brand_logo',           true],
     ['DELETE', 'brand/logo',                 'h_brand_logo_delete',    true],
 
+    // V3: senha, planos, aprovação de exercícios, financeiro, indicação e pagamentos
+    ['POST',   'password/forgot',            'h_password_forgot',      false],
+    ['POST',   'password/reset',             'h_password_reset',       false],
+    ['GET',    'manage/outbox',              'h_outbox',               true],
+    ['POST',   'manage/outbox/{id}/done',    'h_outbox_done',          true],
+    ['GET',    'plans',                      'h_plans',                true],
+    ['POST',   'plans',                      'h_plan_save',            true],
+    ['PUT',    'plans/{id}',                 'h_plan_save',            true],
+    ['DELETE', 'plans/{id}',                 'h_plan_delete',          true],
+    ['POST',   'company/exercises/{id}/submit', 'h_exercise_submit',   true],
+    ['GET',    'approvals',                  'h_approvals',            true],
+    ['POST',   'approvals/{id}',             'h_approval_decide',      true],
+    ['GET',    'finance/settings',           'h_fin_settings_get',     true],
+    ['PUT',    'finance/settings',           'h_fin_settings_put',     true],
+    ['GET',    'finance/plans',              'h_cplans',               true],
+    ['POST',   'finance/plans',              'h_cplan_save',           true],
+    ['PUT',    'finance/plans/{id}',         'h_cplan_save',           true],
+    ['DELETE', 'finance/plans/{id}',         'h_cplan_delete',         true],
+    ['GET',    'finance/dashboard',          'h_fin_dashboard',        true],
+    ['POST',   'finance/commissions/pay',    'h_fin_commission_pay',   true],
+    ['POST',   'finance/manual',             'h_fin_manual',           true],
+    ['GET',    'referral/me',                'h_referral_me',          true],
+    ['GET',    'pay/options',                'h_pay_options',          true],
+    ['POST',   'pay/create',                 'h_pay_create',           true],
+    ['GET',    'pay/mine',                   'h_pay_mine',             true],
+    ['GET',    'pay/status',                 'h_pay_status',           false],
+    ['POST',   'pay/renew',                  'h_pay_renew',            false],
+    ['POST',   'pagbank/webhook',            'h_pagbank_webhook',      false],
+    ['GET',    'pagbank/status',             'h_pagbank_status',       true],
+    ['POST',   'pagbank/test',               'h_pagbank_test',         true],
+
     ['GET',    'routines',                   'h_routines',             true],
     ['POST',   'routines',                   'h_routine_create',       true],
     ['PUT',    'routines/{id}',              'h_routine_update',       true],
@@ -115,7 +149,7 @@ try {
         $pathKnown = true;
         if ($m !== $method) continue;
         $params = array_filter($mm, 'is_string', ARRAY_FILTER_USE_KEY);
-        if ($method !== 'GET') csrf_check();
+        if ($method !== 'GET' && $path !== 'pagbank/webhook') csrf_check(); // o aviso do PagBank vem de fora (sem sessão); ele é conferido perguntando ao PagBank
         $user = $auth ? require_user() : null;
         // Senha provisória: enquanto não trocar, só pode ver o próprio perfil, trocar a senha e sair.
         if ($user && $user['must_change_password'] && !in_array($method . ' ' . $path, ['GET me', 'POST password', 'POST logout'], true)) fail('Troque a senha provisória para continuar.', 403);

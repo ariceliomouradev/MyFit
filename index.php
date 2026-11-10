@@ -27,6 +27,7 @@ header('Cache-Control: no-cache');
 <link rel="apple-touch-icon" href="assets/img/icon-180.png">
 <link rel="preload" href="assets/fonts/archivo-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="assets/css/app.css?v=<?= $v('assets/css/app.css') ?>">
+<link rel="stylesheet" href="assets/css/v3.css?v=<?= $v('assets/css/v3.css') ?>">
 </head>
 <body>
 <div id="app"><p class="boot">Carregando…</p></div>
@@ -35,5 +36,6 @@ header('Cache-Control: no-cache');
 <script src="assets/js/perfil.js?v=<?= $v('assets/js/perfil.js') ?>" defer></script>
 <script src="assets/js/gestao.js?v=<?= $v('assets/js/gestao.js') ?>" defer></script>
 <script src="assets/js/marca.js?v=<?= $v('assets/js/marca.js') ?>" defer></script>
+<script src="assets/js/financeiro.js?v=<?= $v('assets/js/financeiro.js') ?>" defer></script>
 </body>
 </html>
