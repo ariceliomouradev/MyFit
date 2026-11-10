@@ -82,7 +82,7 @@ function generate_plan(array $u, array $profile, array $m): array
 {
     $uid = (int) $u['id'];
     $analysis = analysis_for($profile, $m);
-    $catalog = Db::all('SELECT id,slug,muscle,equipment,environment,role,level,impact,type,target FROM exercises WHERE user_id IS NULL AND (company_id IS NULL OR company_id=?)', [$u['company_id']]);
+    $catalog = Db::all('SELECT id,slug,muscle,equipment,environment,role,level,impact,type,target FROM exercises WHERE user_id IS NULL AND (company_id IS NULL OR company_id=?) AND NOT (user_id IS NULL AND company_id IS NULL AND slug IS NOT NULL AND media IS NULL)', [$u['company_id']]);
     $plan = Planner::build($profile, $analysis, $catalog, $uid);
 
     $pdo = Db::pdo();

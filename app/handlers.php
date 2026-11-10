@@ -232,7 +232,7 @@ function h_exercise_get(array $p, array $u): void
 
 function h_exercises(array $p, array $u): void
 {
-    $rows = Db::all('SELECT * FROM exercises WHERE user_id=? OR (user_id IS NULL AND (company_id IS NULL OR company_id=?)) ORDER BY name', [$u['id'], $u['company_id']]);
+    $rows = Db::all('SELECT * FROM exercises WHERE (user_id=? OR (user_id IS NULL AND (company_id IS NULL OR company_id=?))) AND NOT (user_id IS NULL AND company_id IS NULL AND slug IS NOT NULL AND media IS NULL) ORDER BY name', [$u['id'], $u['company_id']]);
     j(['exercises' => array_map('ex_out', $rows)]);
 }
 
