@@ -67,3 +67,14 @@ textarea.mono{font-size:.75rem;word-break:break-all;resize:none}
 .media-box.small{max-height:170px;overflow:hidden;border-radius:12px}
 .media-box.small img{max-height:170px;object-fit:contain}
 .locked{display:block;margin-top:8px;padding:12px 14px;background:var(--superficie);border:1px dashed var(--borda);border-radius:12px;color:var(--texto-suave);font-weight:500}
+
+/* Planos do gestor: blocos com respiro e formulário em grupos */
+.stackv{display:grid;gap:14px}.stackv>.card,.stackv>.grid2{margin:0}
+.grid2+.card,.grid2+.day-h,.seg+.card,.seg+.grid2{margin-top:14px}
+.formv>.f{margin-bottom:14px}
+.fgroup{padding:12px;margin:0 0 14px;border:1px solid var(--borda);border-radius:14px;background:var(--superficie)}
+.fgroup .fg-t{font-size:.72rem;font-weight:800;letter-spacing:.4px;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.fgroup .f{margin-bottom:10px}
+.fgroup .infobox{margin:0}
+.sheet .scroll .chk{margin:4px 0 14px}
+.tags{display:flex;flex-wrap:wrap;gap:6px}

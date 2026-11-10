@@ -180,7 +180,7 @@ async function renewOpen() {
 /** Cartão "Indique outra empresa": código, regra e quem a empresa já indicou (o desconto sai da plataforma, com teto de margem). */
 function partnerCard(pt) {
   return html`<div class="card"><h3>Indique outra empresa</h3>
-    <p class="small muted" style="margin:4px 0 8px">Quando uma empresa criada com o seu código pagar a mensalidade, <b>você ganha ${fmtNum(pt.referrer_pct, 0)}% de desconto por ${pt.referrer_months} ${pl(pt.referrer_months, 'mês', 'meses')}</b> na sua mensalidade da plataforma, e ela ganha ${fmtNum(pt.referred_pct, 0)}% por ${pt.referred_months} ${pl(pt.referred_months, 'mês', 'meses')}. Passe o código ao gestor ao indicar.</p>
+    <p class="small muted" style="margin:4px 0 8px">Quando uma empresa criada com o seu código pagar a mensalidade, <b>você ganha ${fmtNum(pt.referrer_pct, 0)}% de desconto (no máximo 10% no total) por ${pt.referrer_months} ${pl(pt.referrer_months, 'mês', 'meses')}</b> na sua mensalidade da plataforma, e ela ganha ${fmtNum(pt.referred_pct, 0)}% por ${pt.referred_months} ${pl(pt.referred_months, 'mês', 'meses')}. Passe o código ao gestor ao indicar.</p>
     <div class="refcode">${pt.code}</div><button class="btn sm" data-act="copy-text" data-v="${pt.code}">${raw(ICON.copy)} Copiar código</button>
     ${pt.was_referred_by ? raw(html`<p class="small muted" style="margin:10px 0 0">Sua empresa foi indicada por <b>${pt.was_referred_by.name}</b>${pt.was_referred_by.months_left ? ' · restam ' + pt.was_referred_by.months_left + ' ' + pl(pt.was_referred_by.months_left, 'mês', 'meses') + ' de desconto' : ''}.</p>`) : ''}
     ${pt.referred.length ? raw(html`<ul class="list" style="margin-top:10px">${pt.referred.map(x => raw(html`<li><div class="grow"><div class="t">${x.name}</div><div class="s">${x.months_left ? 'seu desconto continua por ' + x.months_left + ' ' + pl(x.months_left, 'mês', 'meses') : 'desconto já usado'}</div></div><span class="badge ${x.status === 'ativa' ? 'tone-ok' : 'tone-bad'}">${x.status}</span></li>`))}</ul>`) : ''}</div>`;
@@ -312,41 +312,48 @@ const finRecent = d => d.recent.length ? html`<div class="card"><ul class="list"
 /* =====================================================================
  *  Gestor geral: planos da plataforma e aprovação de exercícios
  * ===================================================================== */
-let PLT = null;
-route(/^#\/planos$/, async () => {
-  PLT = await api('GET', 'platform/settings');
-  const { plans, settings: st, summary: sm } = PLT;
-  return html`<div class="page-title"><div><div class="eyebrow">Gestor geral</div><h1>Planos e margem</h1></div><button class="btn primary sm" data-act="plan-edit" data-id="">${raw(ICON.plus)} Plano</button></div>
-    <div class="grid2"><div class="stat big"><b>${money(sm.revenue_cents)}</b><span>receita mensal dos planos ativos (${sm.companies} ${pl(sm.companies, 'empresa', 'empresas')})</span></div>
-      <div class="stat big"><b class="${sm.margin_cents >= 0 ? 'pos' : 'neg'}">${money(sm.margin_cents)}</b><span>margem mensal depois do custo por conta (${fmtNum(sm.margin_pct, 1)}%)</span></div>
-      <div class="stat big"><b>${money(sm.cost_cents)}</b><span>custo variável por conta somado</span></div>
-      <div class="stat big"><b>${money(sm.discounts_cents)}</b><span>descontos de indicação em vigor (saem da sua margem)</span></div></div>
-    <div class="card"><h3>Indicação entre empresas</h3><p class="hint">O desconto sai do <b>seu</b> bolso, por isso nunca passa do <b>teto de margem</b> de cada plano (mostrado abaixo). Alunos e personais de cada empresa são problema da empresa, não da plataforma.</p>
+let PLT = null, PLTAB = 'planos';
+route(/^#\/planos$/, async () => { PLT = await api('GET', 'platform/settings'); return pltHtml(); }, { after: () => simARefresh() });
+function pltHtml() {
+  const tabs = [['planos', 'Planos'], ['indic', 'Indicação'], ['resumo', 'Resumo']];
+  return html`<div class="page-title"><div><div class="eyebrow">Gestor geral</div><h1>Planos</h1></div><button class="btn primary sm" data-act="plan-edit" data-id="">${raw(ICON.plus)} Plano</button></div>
+    <div class="seg" role="tablist">${tabs.map(([k, l]) => raw(html`<button role="tab" aria-selected="${PLTAB === k}" data-act="plt-tab" data-t="${k}">${l}</button>`))}</div>
+    <div id="plt-body" class="stackv">${raw(pltTab())}</div>`;
+}
+function pltTab() {
+  const { plans, settings: st, summary: sm, max_discount_pct: mx } = PLT;
+  if (PLTAB === 'resumo') return html`<div class="grid2"><div class="stat big"><b>${money(sm.revenue_cents)}</b><span>entra por mês das empresas ativas (${sm.companies})</span></div>
+      <div class="stat big"><b class="${sm.margin_cents >= 0 ? 'pos' : 'neg'}">${money(sm.margin_cents)}</b><span>sobra por mês depois do custo por conta (${fmtNum(sm.margin_pct, 1)}%)</span></div>
+      <div class="stat big"><b>${money(sm.cost_cents)}</b><span>custo por conta, somado</span></div>
+      <div class="stat big"><b>${money(sm.discounts_cents)}</b><span>de desconto de indicação este mês (sai da sua margem)</span></div></div>
+    <div class="card"><h3>Como ler</h3><ul class="how"><li><b>Entra por mês</b> = mensalidades dos planos já com os descontos em vigor.</li><li><b>Sobra</b> = o que entra menos o custo por conta de cada plano.</li><li>Os números ficam mais fiéis depois que você preenche o custo por conta em cada plano.</li></ul></div>`;
+  if (PLTAB === 'indic') return html`<div class="card"><h3>Empresa indica empresa</h3>
+      <p class="hint">O desconto sai do <b>seu</b> bolso e nunca passa de <b>${fmtNum(mx, 0)}%</b> do preço do plano (somando tudo), nem do teto de margem do plano, o que for menor. O que a empresa dá aos alunos é com ela.</p>
       <form data-form="platform-rules"><div class="grid2">
-        <label class="f">Desconto de quem foi indicado (%)<input class="in" name="b2b_referred_pct" inputmode="decimal" value="${st.b2b_referred_pct}" required></label>
-        <label class="f">...por quantos meses<input class="in" name="b2b_referred_months" inputmode="numeric" value="${st.b2b_referred_months}" required></label>
-        <label class="f">Desconto de quem indicou, por empresa (%)<input class="in" name="b2b_referrer_pct" inputmode="decimal" value="${st.b2b_referrer_pct}" required></label>
-        <label class="f">...por quantos meses<input class="in" name="b2b_referrer_months" inputmode="numeric" value="${st.b2b_referrer_months}" required></label></div>
+        <label class="f">Desconto de quem foi indicado (%)<input class="in" name="b2b_referred_pct" inputmode="decimal" value="${st.b2b_referred_pct}" required><span class="hint">Máximo ${fmtNum(mx, 0)}%.</span></label>
+        <label class="f">Por quantos meses<input class="in" name="b2b_referred_months" inputmode="numeric" value="${st.b2b_referred_months}" required></label>
+        <label class="f">Desconto de quem indicou (%)<input class="in" name="b2b_referrer_pct" inputmode="decimal" value="${st.b2b_referrer_pct}" required><span class="hint">Por empresa indicada. Máximo ${fmtNum(mx, 0)}%.</span></label>
+        <label class="f">Por quantos meses<input class="in" name="b2b_referrer_months" inputmode="numeric" value="${st.b2b_referrer_months}" required></label></div>
         <button class="btn primary block" type="submit">Salvar regras</button></form></div>
-    <div class="day-h">Planos da plataforma</div>
-    ${plans.map(p => raw(html`<div class="card"><div class="row between"><h3>${p.name} ${p.active ? '' : raw('<span class="badge tone-bad">desativado</span>')}</h3><b class="mono">${money(p.price_cents)}<span class="small muted">/mês</span></b></div>
-      <ul class="how"><li>${p.max_personals == null ? 'Personais ilimitados' : `${p.max_personals} ${pl(p.max_personals, 'personal', 'personais')}`}</li><li>${p.max_students == null ? 'Alunos ilimitados' : `${p.max_students} alunos ativos`}</li></ul>
-      <ul class="list sum"><li><span class="muted">Custo variável por conta</span><b>${money(p.cost_cents)}</b></li><li><span class="muted">Margem por conta</span><b>${money(p.ceiling.margin_cents)} (${fmtNum(p.ceiling.margin_pct, 1)}%)</b></li><li><span class="muted">Margem mínima que você exige</span><b>${fmtNum(p.min_margin_pct, 0)}% (${money(p.ceiling.floor_cents)})</b></li><li><span class="muted">Teto de desconto por mês</span><b class="pos">${money(p.ceiling.max_discount_cents)} (${fmtNum(p.ceiling.max_discount_pct, 1)}%)</b></li></ul>
-      <div class="row between"><span class="small muted">${p.companies} ${pl(p.companies, 'empresa', 'empresas')}</span><button class="btn sm" data-act="plan-edit" data-id="${p.id}" data-p="${JSON.stringify(p)}">Editar</button></div></div>`))}
-    <div class="card" id="simA"><h3>Simulador: quanto custa uma indicação?</h3><p class="hint">Mostra o custo da indicação e em quantos meses ela se paga. Mexa nos números.</p>
+    <div class="card" id="simA"><h3>Simulador: quanto custa uma indicação?</h3>
       <label class="f">Plano<select class="in" data-sima="plan">${plans.map(p => raw(html`<option value="${p.id}" data-price="${p.price_cents}" data-cost="${p.cost_cents}" data-mm="${p.min_margin_pct}">${p.name} · ${money(p.price_cents)}</option>`))}</select></label>
-      <div class="grid2"><label class="f">Quanto fica a empresa (meses)<input class="in" inputmode="numeric" data-sima="keep" value="12"></label></div>
+      <label class="f">Quanto tempo a empresa fica (meses)<input class="in" inputmode="numeric" data-sima="keep" value="12"></label>
       <div id="simA-out"></div></div>`;
-}, { after: () => simARefresh() });
+  return plans.length ? html`${plans.map(p => raw(html`<div class="card plancard2">
+      <div class="row between"><h3>${p.name} ${p.active ? '' : raw('<span class="badge tone-bad">desativado</span>')}</h3><b class="mono">${money(p.price_cents)}<span class="small muted">/mês</span></b></div>
+      <p class="small muted" style="margin:2px 0 10px">${p.max_personals == null ? 'Personais ilimitados' : p.max_personals + ' ' + pl(p.max_personals, 'personal', 'personais')} · ${p.max_students == null ? 'alunos ilimitados' : p.max_students + ' alunos'} · ${p.companies} ${pl(p.companies, 'empresa', 'empresas')}</p>
+      <div class="tags"><span class="badge">Custo ${money(p.cost_cents)}</span><span class="badge tone-ok">Sobra ${money(p.ceiling.margin_cents)} (${fmtNum(p.ceiling.margin_pct, 0)}%)</span><span class="badge">Desconto máx. ${money(p.ceiling.effective_max_discount_cents)} (${fmtNum(p.ceiling.effective_max_discount_pct, 1)}%)</span></div>
+      <button class="btn sm block" style="margin-top:12px" data-act="plan-edit" data-id="${p.id}" data-p="${JSON.stringify(p)}">Editar plano</button></div>`))}` : html`<div class="empty">Nenhum plano ainda. Toque em "+ Plano".</div>`;
+}
 function simARefresh() {
   const box = $('#simA-out'); if (!box || !PLT) return;
   const o = $('#simA select[data-sima=plan]').selectedOptions[0], P = +o.dataset.price, K = +o.dataset.cost, mm = +o.dataset.mm;
   const keep = Math.max(1, +$('#simA [data-sima=keep]').value || 12), st = PLT.settings;
-  const floor = P * mm / 100, maxD = Math.max(0, P - K - floor);
+  const floor = P * mm / 100, maxD = Math.min(Math.max(0, P - K - floor), P * (PLT.max_discount_pct || 10) / 100);
   const d1 = Math.min(P * st.b2b_referred_pct / 100, maxD), d2 = Math.min(P * st.b2b_referrer_pct / 100, maxD);
   const c1 = d1 * st.b2b_referred_months, c2 = d2 * st.b2b_referrer_months, cac = c1 + c2, mon = P - K;
   box.innerHTML = html`<ul class="list sum"><li><span class="muted">Desconto do indicado (${st.b2b_referred_months} ${pl(st.b2b_referred_months, 'mês', 'meses')})</span><b>${money(c1)}</b></li><li><span class="muted">Desconto de quem indicou (${st.b2b_referrer_months} ${pl(st.b2b_referrer_months, 'mês', 'meses')})</span><b>${money(c2)}</b></li><li><span class="muted"><b>Custo total da indicação</b></span><b class="neg">${money(cac)}</b></li><li><span class="muted">Margem por mês (sem desconto)</span><b>${money(mon)}</b></li><li><span class="muted">Margem do novo cliente em ${keep} meses, já sem o desconto dele</span><b>${money(mon * keep - c1)}</b></li><li><span class="muted"><b>Ganho líquido da indicação</b> (depois dos dois descontos)</span><b class="${mon * keep - cac >= 0 ? 'pos' : 'neg'}">${money(mon * keep - cac)}</b></li><li><span class="muted">A indicação se paga em</span><b>${mon > 0 ? (cac / mon <= 1 ? 'menos de 1 mês' : fmtNum(cac / mon, 1) + ' meses') : '–'}</b></li></ul>
-    ${(P * st.b2b_referred_pct / 100 > maxD || P * st.b2b_referrer_pct / 100 > maxD) ? raw('<div class="infobox"><span>O desconto pedido passa do teto do plano: o sistema aplica só o teto, para a sua margem mínima ficar protegida.</span></div>') : ''}`;
+    ${(P * st.b2b_referred_pct / 100 > maxD || P * st.b2b_referrer_pct / 100 > maxD) ? raw('<div class="infobox"><span>O desconto pedido passa do máximo (10% ou o teto de margem do plano): o sistema aplica só o máximo, para proteger a sua margem.</span></div>') : ''}`;
 }
 document.addEventListener('input', e => { if (e.target.matches?.('[data-sima]')) simARefresh(); });
 document.addEventListener('change', e => { if (e.target.matches?.('[data-sima]')) simARefresh(); });
@@ -462,19 +469,25 @@ Object.assign(acts, {
         <label class="f">Plano<select class="in" name="plan_id">${FIN.plans.filter(p => p.active).map(p => raw(html`<option value="${p.id}">${p.name} · ${money(p.price_cents)}</option>`))}</select></label>
         <p class="hint">O acesso do aluno soma o período do plano. Descontos de indicação disponíveis são aplicados automaticamente.</p><button class="btn primary block" type="submit">Registrar e renovar acesso</button></form>`) : raw('<div class="empty">Cadastre um plano e tenha ao menos um aluno ativo.</div>')}`);
   }),
-  'plan-edit': el => { setTimeout(() => { const f = $('.modal form[data-form=plan]'); if (f) ceilRefresh(f); }, 0);
-    const p = el.dataset.p ? JSON.parse(el.dataset.p) : { id: '', name: '', price_cents: 0, max_personals: 1, max_students: 50, active: true };
-    openModal(html`<div class="row between" style="margin-bottom:6px"><h2>${p.id ? 'Editar plano' : 'Novo plano'}</h2><button class="icon-btn" data-close aria-label="Fechar">${raw(ICON.x)}</button></div>
-      <form data-form="plan" data-id="${p.id}"><label class="f">Nome<input class="in" name="name" value="${p.name}" maxlength="60" required></label>
+  'plan-edit': el => {
+    const p = el.dataset.p ? JSON.parse(el.dataset.p) : { id: '', name: '', price_cents: 0, max_personals: 1, max_students: 50, active: true, cost_cents: 0, min_margin_pct: 40 };
+    openModal(html`<div class="row between" style="margin-bottom:10px"><h2>${p.id ? 'Editar plano' : 'Novo plano'}</h2><button class="icon-btn" data-close aria-label="Fechar">${raw(ICON.x)}</button></div>
+      <div class="scroll"><form data-form="plan" data-id="${p.id}" class="formv">
+        <label class="f">Nome do plano<input class="in" name="name" value="${p.name}" maxlength="60" required></label>
         <label class="f">Mensalidade da empresa (R$)<input class="in" name="price" inputmode="decimal" value="${centsToInput(p.price_cents)}" required></label>
-        <div class="grid2"><label class="f">Custo variável por conta (R$ por mês)<input class="in" name="cost" inputmode="decimal" value="${centsToInput(p.cost_cents || 0)}" data-ceil placeholder="8,00"><span class="hint">Suporte, hospedagem rateada e taxas de pagamento.</span></label>
-        <label class="f">Margem mínima (% do preço)<input class="in" name="min_margin_pct" inputmode="decimal" value="${p.min_margin_pct ?? 40}" data-ceil><span class="hint">Nenhum desconto de indicação pode passar daqui.</span></label></div>
-        <div class="infobox" data-ceil-out><span>Preencha preço, custo e margem para ver o teto de desconto.</span></div>
-        <div class="grid2"><label class="f">Máx. de personais<input class="in" name="max_personals" inputmode="numeric" value="${p.max_personals ?? ''}" placeholder="vazio = ilimitado"></label>
-        <label class="f">Máx. de alunos ativos<input class="in" name="max_students" inputmode="numeric" value="${p.max_students ?? ''}" placeholder="vazio = ilimitado"></label></div>
-        ${p.id ? raw(html`<label class="chk"><input type="checkbox" name="active" value="1" ${p.active ? raw('checked') : ''}> Plano ativo</label>`) : ''}
-        <div class="stack"><button class="btn primary block" type="submit">Salvar plano</button>${p.id ? raw(html`<button type="button" class="btn danger block" data-act="plan-del" data-id="${p.id}">Excluir plano</button>`) : ''}</div></form>`);
+        <div class="fgroup"><div class="fg-t">Limites</div><div class="grid2">
+          <label class="f">Personais<input class="in" name="max_personals" inputmode="numeric" value="${p.max_personals ?? ''}" placeholder="vazio = ilimitado"></label>
+          <label class="f">Alunos ativos<input class="in" name="max_students" inputmode="numeric" value="${p.max_students ?? ''}" placeholder="vazio = ilimitado"></label></div></div>
+        <div class="fgroup"><div class="fg-t">Custo e margem</div><div class="grid2">
+          <label class="f">Custo por conta (R$/mês)<input class="in" name="cost" inputmode="decimal" value="${centsToInput(p.cost_cents || 0)}" data-ceil placeholder="8,00"></label>
+          <label class="f">Margem mínima (%)<input class="in" name="min_margin_pct" inputmode="decimal" value="${p.min_margin_pct ?? 40}" data-ceil></label></div>
+          <p class="hint" style="margin:0 0 8px">Custo = suporte, hospedagem rateada e taxas. A margem mínima limita os descontos de indicação.</p>
+          <div class="infobox" data-ceil-out style="margin:0"><span>Preencha preço, custo e margem para ver o desconto máximo.</span></div></div>
+        ${p.id ? raw(html`<label class="chk"><input type="checkbox" name="active" value="1" ${p.active ? raw('checked') : ''}> Plano ativo (aparece para as empresas)</label>`) : ''}
+        <div class="stack" style="margin-top:6px"><button class="btn primary block" type="submit">Salvar plano</button>${p.id ? raw(html`<button type="button" class="btn danger block" data-act="plan-del" data-id="${p.id}">Excluir plano</button>`) : ''}</div></form></div>`);
+    setTimeout(() => { const fm = $('.modal form[data-form=plan]'); if (fm) ceilRefresh(fm); }, 0);
   },
+  'plt-tab': el => { PLTAB = el.dataset.t; $$('[data-act=plt-tab]').forEach(b => b.setAttribute('aria-selected', b === el)); $('#plt-body').innerHTML = pltTab(); simARefresh(); },
   'plan-del': guard(async el => { closeModal(); if (!await ask('Excluir plano?', 'Só é possível se nenhuma empresa estiver nele.', 'Excluir')) return; await api('DELETE', `plans/${el.dataset.id}`); toast('Plano excluído.'); render(); }),
   'co-plan': guard(async el => {
     const [{ companies, plans }] = [await api('GET', 'companies')]; const c = companies.find(x => x.id == el.dataset.id);
@@ -501,7 +514,7 @@ function ceilRefresh(form) {
   const P = toCents(form.price.value), K = toCents(form.cost.value || '0'), mm = parseFloat(String(form.min_margin_pct.value).replace(',', '.'));
   if (!Number.isFinite(P) || !Number.isFinite(K) || !Number.isFinite(mm)) return;
   const floor = P * mm / 100, max = Math.max(0, P - K - floor);
-  out.innerHTML = '<span>Margem por conta: <b>' + money(P - K) + '</b> (' + fmtNum(P ? 100 * (P - K) / P : 0, 1) + '%). Margem mínima: <b>' + money(floor) + '</b>. <b>Teto de desconto por mês: ' + money(max) + ' (' + fmtNum(P ? 100 * max / P : 0, 1) + '%)</b>.</span>';
+  out.innerHTML = '<span>Margem por conta: <b>' + money(P - K) + '</b> (' + fmtNum(P ? 100 * (P - K) / P : 0, 1) + '%). Margem mínima: <b>' + money(floor) + '</b>. <b>Desconto máximo por mês: ' + money(Math.min(max, P * 0.10)) + ' (' + fmtNum(P ? 100 * Math.min(max, P * 0.10) / P : 0, 1) + '%)</b>' + (max < P * 0.10 ? ' (limitado pela margem)' : ' (regra fixa de 10%)') + '.</span>';
 }
 document.addEventListener('input', e => { const f = e.target.closest?.('form[data-form=plan]'); if (f && (e.target.matches('[data-ceil]') || e.target.name === 'price')) ceilRefresh(f); });
 const priceBody = d => { const c = toCents(d.price); if (!Number.isFinite(c) || c < 0) throw new Error('Informe o valor em reais, como 79,90.'); return c; };

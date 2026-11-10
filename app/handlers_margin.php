@@ -9,12 +9,15 @@ declare(strict_types=1);
  *  O que a empresa cobra dos alunos (nível B) é dela e não passa por aqui.
  * ===================================================================== */
 
-const PLATFORM_DEFAULTS = ['b2b_referred_pct' => 20.0, 'b2b_referred_months' => 2.0, 'b2b_referrer_pct' => 20.0, 'b2b_referrer_months' => 2.0];
+/** Regra fixa da plataforma: NENHUM desconto de indicação entre empresas passa de 10% do preço do plano (somando tudo). */
+const PLATFORM_MAX_DISCOUNT_PCT = 10.0;
+const PLATFORM_DEFAULTS = ['b2b_referred_pct' => 10.0, 'b2b_referred_months' => 2.0, 'b2b_referrer_pct' => 10.0, 'b2b_referrer_months' => 2.0];
 
 function platform_cfg(): array
 {
     $c = PLATFORM_DEFAULTS;
     foreach (Db::all('SELECT k,v FROM platform_settings') as $r) if (array_key_exists($r['k'], $c)) $c[$r['k']] = (float) $r['v'];
+    foreach (['b2b_referred_pct', 'b2b_referrer_pct'] as $k) $c[$k] = min($c[$k], PLATFORM_MAX_DISCOUNT_PCT); // valores antigos acima de 10% passam a valer 10%
     return $c;
 }
 
@@ -24,7 +27,8 @@ function plan_ceiling(array $plan): array
     $price = (int) $plan['price_cents']; $cost = (int) ($plan['cost_cents'] ?? 0); $mm = (float) ($plan['min_margin_pct'] ?? 40);
     $floor = (int) round($price * $mm / 100);
     $max = max(0, $price - $cost - $floor);
-    return ['price_cents' => $price, 'cost_cents' => $cost, 'min_margin_pct' => $mm, 'margin_cents' => $price - $cost, 'margin_pct' => $price ? round(100 * ($price - $cost) / $price, 1) : 0.0,
+    $eff = min($max, (int) round($price * PLATFORM_MAX_DISCOUNT_PCT / 100)); // o menor entre o teto de margem e os 10% fixos
+    return ['effective_max_discount_cents' => $eff, 'effective_max_discount_pct' => $price ? round(100 * $eff / $price, 1) : 0.0, 'binding' => $eff < (int) round($price * PLATFORM_MAX_DISCOUNT_PCT / 100) ? 'margem' : 'regra'] + ['price_cents' => $price, 'cost_cents' => $cost, 'min_margin_pct' => $mm, 'margin_cents' => $price - $cost, 'margin_pct' => $price ? round(100 * ($price - $cost) / $price, 1) : 0.0,
             'floor_cents' => $floor, 'max_discount_cents' => $max, 'max_discount_pct' => $price ? round(100 * $max / $price, 1) : 0.0];
 }
 
@@ -59,10 +63,10 @@ function platform_quote(int $cid): ?array
         $notes[] = count($rr) . ' ' . (count($rr) === 1 ? 'empresa indicada' : 'empresas indicadas') . ': ' . fmt_pct($cfg['b2b_referrer_pct'] * count($rr));
     }
     $ceil = plan_ceiling($plan);
-    $want = (int) round($price * $pct / 100); $disc = min($want, $ceil['max_discount_cents']);
+    $want = (int) round($price * $pct / 100); $disc = min($want, $ceil['effective_max_discount_cents']);
     $amount = max(100, $price - $disc); $disc = $price - $amount;
     return ['plan' => $plan, 'list_cents' => $price, 'discount_cents' => $disc, 'amount_cents' => $amount, 'discount_pct' => $price ? round(100 * $disc / $price, 2) : 0.0,
-            'capped' => $want > $disc, 'discount_note' => $notes ? implode(' + ', $notes) . ($want > $disc ? ' (limitado pelo teto de margem do plano)' : '') : null,
+            'capped' => $want > $disc, 'discount_note' => $notes ? implode(' + ', $notes) . ($want > $disc ? ($ceil['binding'] === 'margem' ? ' (limitado pelo teto de margem do plano)' : ' (limitado a ' . fmt_pct(PLATFORM_MAX_DISCOUNT_PCT) . ', regra da plataforma)') : '') : null,
             'refs_json' => $refs ? json_encode($refs) : null, 'ceiling' => $ceil];
 }
 function fmt_pct(float $n): string { return rtrim(rtrim(number_format($n, 2, ',', ''), '0'), ',') . '%'; }
@@ -103,7 +107,7 @@ function h_platform_get(array $p, array $u): void
 {
     require_role($u, 'super');
     $c = platform_cfg();
-    j(['settings' => ['b2b_referred_pct' => $c['b2b_referred_pct'], 'b2b_referred_months' => (int) $c['b2b_referred_months'], 'b2b_referrer_pct' => $c['b2b_referrer_pct'], 'b2b_referrer_months' => (int) $c['b2b_referrer_months']],
+    j(['max_discount_pct' => PLATFORM_MAX_DISCOUNT_PCT, 'settings' => ['b2b_referred_pct' => $c['b2b_referred_pct'], 'b2b_referred_months' => (int) $c['b2b_referred_months'], 'b2b_referrer_pct' => $c['b2b_referrer_pct'], 'b2b_referrer_months' => (int) $c['b2b_referrer_months']],
        'plans' => plans_list(), 'summary' => platform_summary()]);
 }
 
@@ -111,6 +115,7 @@ function h_platform_put(array $p, array $u): void
 {
     require_role($u, 'super');
     $in = body();
+    foreach (['b2b_referred_pct' => 'do indicado', 'b2b_referrer_pct' => 'de quem indicou'] as $k => $lbl) if (is_numeric($in[$k] ?? null) && (float) $in[$k] > PLATFORM_MAX_DISCOUNT_PCT) fail('O desconto ' . $lbl . ' não pode passar de ' . fmt_pct(PLATFORM_MAX_DISCOUNT_PCT) . '.');
     $vals = ['b2b_referred_pct' => v_num($in['b2b_referred_pct'] ?? null, 'Desconto de quem foi indicado', 0, 100), 'b2b_referred_months' => v_int($in['b2b_referred_months'] ?? null, 'Meses de desconto do indicado', 0, 24),
              'b2b_referrer_pct' => v_num($in['b2b_referrer_pct'] ?? null, 'Desconto de quem indicou', 0, 100), 'b2b_referrer_months' => v_int($in['b2b_referrer_months'] ?? null, 'Meses de desconto de quem indicou', 0, 24)];
     foreach ($vals as $k => $v) Db::run('INSERT INTO platform_settings (k,v,updated_at) VALUES (?,?,?) ON DUPLICATE KEY UPDATE v=VALUES(v), updated_at=VALUES(updated_at)', [$k, (string) $v, now()]);
