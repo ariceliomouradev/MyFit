@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Aricelio Moura">
+  <rect width="512" height="512" rx="112" fill="#101418"/>
+  <g transform="translate(58 121) scale(0.9)">
+    <rect x="3" y="3" width="434" height="294" rx="34" fill="none" stroke="#F5A524" stroke-width="6"/>
+    <g fill="#F5A524">
+      <path fill-rule="evenodd" d="M59 135a90 90 0 1 0 180 0a90 90 0 1 0-180 0ZM103 135a46 46 0 1 0 92 0a46 46 0 1 0-92 0Z"/>
+      <rect x="58" y="135" width="45" height="120"/>
+      <path d="M199 255V198A93 93 0 0 1 385 198V255H339.5V197A47.5 47.5 0 0 0 244.5 197V255Z"/>
+    </g>
+    <g fill="none" stroke="#F5A524" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="369" cy="112" r="13"/>
+      <path d="M364 119V105h5.2a4 4 0 0 1 0 8H364M369 113l5 6"/>
+    </g>
+  </g>
+</svg>

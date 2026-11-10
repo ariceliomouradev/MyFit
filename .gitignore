@@ -1,0 +1,10 @@
+config.php
+storage/photos/*
+!storage/photos/.gitkeep
+storage/sessions/*
+!storage/sessions/.gitkeep
+uploads/exercicios/*
+!uploads/exercicios/.gitkeep
+uploads/marca/*
+!uploads/marca/.gitkeep
+
