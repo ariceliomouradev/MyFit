@@ -128,6 +128,7 @@ function pay_apply_paid(int $id): bool
             $c = Db::one('SELECT id, access_until FROM companies WHERE id=? FOR UPDATE', [$pay['company_id']]);
             if ($c) {
                 Db::run("UPDATE companies SET access_until=?, status='ativa'" . ($pay['plan_ref'] && Db::val('SELECT 1 FROM plans WHERE id=?', [$pay['plan_ref']]) ? ', plan_id=' . (int) $pay['plan_ref'] : '') . ' WHERE id=?', [$extend($c['access_until']), $c['id']]);
+                consume_company_referrals($pay['discount_refs'] ?? null); // um mês de desconto de indicação entre empresas foi usado
             }
         }
         $pdo->commit();
@@ -138,7 +139,7 @@ function pay_apply_paid(int $id): bool
 /* ---------- Cálculo de preço, descontos e comissão ---------- */
 function company_fin(int $cid): array
 {
-    $c = Db::one('SELECT id,name,commission_pct,commission_months,discount_referred_pct,discount_referrer_pct,discount_cap_pct,access_until,status,plan_id FROM companies WHERE id=?', [$cid]);
+    $c = Db::one('SELECT id,name,commission_pct,commission_months,discount_referred_pct,discount_referrer_pct,discount_cap_pct,incentive_cap_pct,access_until,status,plan_id FROM companies WHERE id=?', [$cid]);
     if (!$c) fail('Empresa não encontrada.', 404);
     return $c;
 }
@@ -174,8 +175,14 @@ function pay_quote(array $payer, array $plan): array
     if ($rf && strtotime((string) $rf['activated_at'] . ' +' . (int) $c['commission_months'] . ' months') > time() && (float) $c['commission_pct'] > 0) {
         $comUser = (int) $rf['referrer_id']; $comCents = (int) round($amount * (float) $c['commission_pct'] / 100);
     }
+    // Teto de incentivos da empresa: desconto + comissão não passam de X% do preço de tabela (corta primeiro o desconto)
+    $capTotal = (int) round($list * (float) ($c['incentive_cap_pct'] ?? 100) / 100); $limited = false;
+    for ($i = 0; $i < 4 && $discount > 0 && $discount + $comCents > $capTotal; $i++) {
+        $discount = max(0, $capTotal - $comCents); $amount = max(100, $list - $discount); $discount = $list - $amount; $limited = true;
+        if ($comUser) $comCents = (int) round($amount * (float) $c['commission_pct'] / 100);
+    }
     return ['list_cents' => $list, 'monthly_cents' => $monthly, 'discount_cents' => $discount, 'amount_cents' => $amount, 'discount_pct' => $pctTotal,
-            'discount_note' => $note ? implode(' + ', $note) . ' sobre 1 mês' : null, 'referral_id' => $refId, 'credit_ids' => $creditIds, 'commission_user_id' => $comUser, 'commission_cents' => $comCents];
+            'discount_note' => $note ? implode(' + ', $note) . ' sobre 1 mês' . ($limited ? ' (limitado pelo teto de incentivos da empresa)' : '') : null, 'referral_id' => $refId, 'credit_ids' => $creditIds, 'commission_user_id' => $comUser, 'commission_cents' => $comCents];
 }
 
 function pay_public(array $p): array
@@ -187,10 +194,10 @@ function pay_public(array $p): array
 
 function pay_insert(array $payer, string $kind, array $plan, array $q, string $method, ?int $companyId, ?int $by): int
 {
-    Db::run('INSERT INTO payments (company_id,user_id,payer_name,kind,plan_name,plan_ref,months,list_cents,discount_cents,amount_cents,discount_note,referral_id,commission_user_id,commission_cents,method,status,reference,token,created_by,created_at)
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+    Db::run('INSERT INTO payments (company_id,user_id,payer_name,kind,plan_name,plan_ref,months,list_cents,discount_cents,amount_cents,discount_note,referral_id,commission_user_id,commission_cents,method,status,reference,token,created_by,created_at,discount_refs)
+             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
         [$companyId, $payer['id'], mb_substr((string) $payer['name'], 0, 80), $kind, mb_substr((string) $plan['name'], 0, 60), $plan['id'] ?? null, max(1, (int) ($plan['months'] ?? 1)), $q['list_cents'], $q['discount_cents'], $q['amount_cents'],
-         $q['discount_note'], $q['referral_id'], $q['commission_user_id'], $q['commission_cents'], $method, 'pendente', 'mt' . bin2hex(random_bytes(10)), bin2hex(random_bytes(16)), $by, now()]);
+         $q['discount_note'], $q['referral_id'], $q['commission_user_id'], $q['commission_cents'], $method, 'pendente', 'mt' . bin2hex(random_bytes(10)), bin2hex(random_bytes(16)), $by, now(), $q['refs_json'] ?? null]);
     return Db::id();
 }
 
@@ -236,7 +243,8 @@ function h_pay_options(array $p, array $u): void
     }
     if ($u['role'] === 'admin') {
         $c = Db::one('SELECT c.access_until, p.id plan_id, p.name plan_name, p.price_cents FROM companies c LEFT JOIN plans p ON p.id=c.plan_id WHERE c.id=?', [$u['company_id']]);
-        j(['kind' => 'empresa', 'enabled' => pb_cfg() !== null, 'access_until' => $c['access_until'], 'plan' => $c['plan_id'] ? ['id' => (int) $c['plan_id'], 'name' => $c['plan_name'], 'price_cents' => (int) $c['price_cents']] : null]);
+        $pq = platform_quote((int) $u['company_id']);
+        j(['kind' => 'empresa', 'quote' => $pq ? array_diff_key($pq, ['plan' => 1, 'refs_json' => 1]) : null, 'partner' => partner_info((int) $u['company_id']), 'enabled' => pb_cfg() !== null, 'access_until' => $c['access_until'], 'plan' => $c['plan_id'] ? ['id' => (int) $c['plan_id'], 'name' => $c['plan_name'], 'price_cents' => (int) $c['price_cents']] : null]);
     }
     fail('Você não tem permissão para isso.', 403);
 }
@@ -256,7 +264,8 @@ function h_pay_create(array $p, array $u): void
         if (!$pl || (int) $pl['price_cents'] < 100) fail('A sua empresa ainda não tem um plano com valor definido. Fale com o gestor.');
         $row = Db::one(USER_SELECT . 'WHERE u.id=?', [$u['id']]);
         $plan = ['id' => (int) $pl['id'], 'name' => 'Plataforma · ' . $pl['name'] . ' · 1 mês', 'months' => 1, 'price_cents' => (int) $pl['price_cents']];
-        $q = ['list_cents' => (int) $pl['price_cents'], 'discount_cents' => 0, 'amount_cents' => (int) $pl['price_cents'], 'discount_note' => null, 'referral_id' => null, 'credit_ids' => [], 'commission_user_id' => null, 'commission_cents' => 0];
+        $pq = platform_quote((int) $u['company_id']);
+        $q = ['list_cents' => $pq['list_cents'], 'discount_cents' => $pq['discount_cents'], 'amount_cents' => $pq['amount_cents'], 'discount_note' => $pq['discount_note'], 'referral_id' => null, 'credit_ids' => [], 'commission_user_id' => null, 'commission_cents' => 0, 'refs_json' => $pq['refs_json']];
         j(['payment' => pay_create_pix($row, 'empresa', $plan, $q, $tax)], 201);
     }
     fail('Você não tem permissão para isso.', 403);
@@ -350,12 +359,14 @@ function h_fin_settings_get(array $p, array $u): void
 {
     $c = company_fin(fin_company($u));
     j(['settings' => ['commission_pct' => (float) $c['commission_pct'], 'commission_months' => (int) $c['commission_months'], 'discount_referred_pct' => (float) $c['discount_referred_pct'],
-        'discount_referrer_pct' => (float) $c['discount_referrer_pct'], 'discount_cap_pct' => (float) $c['discount_cap_pct']]]);
+        'discount_referrer_pct' => (float) $c['discount_referrer_pct'], 'discount_cap_pct' => (float) $c['discount_cap_pct'], 'incentive_cap_pct' => (float) $c['incentive_cap_pct']]]);
 }
 function h_fin_settings_put(array $p, array $u): void
 {
     $cid = fin_company($u); $in = body();
-    Db::run('UPDATE companies SET commission_pct=?, commission_months=?, discount_referred_pct=?, discount_referrer_pct=?, discount_cap_pct=? WHERE id=?', [
+    $capInc = v_num($in['incentive_cap_pct'] ?? 25, 'Teto de incentivos', 0, 100);
+    if (v_num($in['commission_pct'] ?? null, 'Comissão', 0, 100) > $capInc) fail('A comissão do personal não pode ser maior que o teto de incentivos (' . $capInc . '%).');
+    Db::run('UPDATE companies SET incentive_cap_pct=?, commission_pct=?, commission_months=?, discount_referred_pct=?, discount_referrer_pct=?, discount_cap_pct=? WHERE id=?', [$capInc, 
         v_num($in['commission_pct'] ?? null, 'Comissão', 0, 100), v_int($in['commission_months'] ?? null, 'Meses de comissão', 1, 60), v_num($in['discount_referred_pct'] ?? null, 'Desconto de quem foi indicado', 0, 100),
         v_num($in['discount_referrer_pct'] ?? null, 'Desconto de quem indicou', 0, 100), v_num($in['discount_cap_pct'] ?? null, 'Teto de desconto', 0, 100), $cid]);
     h_fin_settings_get([], $u);

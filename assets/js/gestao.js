@@ -52,7 +52,7 @@ route(/^#\/gestor$/, async () => {
         <div class="small muted">${c.alunos} ${pl(c.alunos, 'aluno', 'alunos')} · ${c.personals} ${pl(c.personals, 'personal', 'personais')} · ${c.users} usuários${c.pending ? ' · ' : ''}${c.pending ? raw(html`<b class="warn-t">${c.pending} aguardando</b>`) : ''}</div></div>
         <span class="badge ${c.status === 'ativa' ? 'tone-ok' : 'tone-bad'}">${c.status === 'ativa' ? 'Ativa' : 'Suspensa'}</span></div>
       <div class="row wrap" style="margin:8px 0"><span class="badge ${c.plan_name ? 'tone-ok' : ''}">${c.plan_name ? 'Plano ' + c.plan_name : 'sem plano'}</span><span class="badge ${c.max_students != null && c.alunos_ativos >= c.max_students ? 'tone-bad' : ''}">${c.alunos_ativos}${c.max_students != null ? ' de ' + c.max_students : ''} alunos · ${c.personals}${c.max_personals != null ? ' de ' + c.max_personals : ''} ${pl(c.personals, 'personal', 'personais')}</span><span class="badge tone-${daysTone(c.days_left)}">${c.access_until ? `${daysLabel(c.days_left)} · até ${fmtD(c.access_until)}` : 'sem prazo'}</span>
-        <button class="badge code" data-act="copy" data-v="${c.code}" aria-label="Copiar código ${c.code}">Código ${c.code} ⧉</button></div>
+        <button class="badge code" data-act="copy" data-v="${c.code}" aria-label="Copiar código ${c.code}">Código ${c.code} ⧉</button>${c.partner_code ? raw(html`<button class="badge code" data-act="copy-text" data-v="${c.partner_code}" aria-label="Copiar código de parceiro ${c.partner_code}">Parceiro ${c.partner_code} ⧉</button>`) : ''}</div>
       <div class="small muted">Administrador${c.admins.length > 1 ? 'es' : ''}: ${c.admins.map(a => a.name + ' (' + a.email + ')').join(', ')}</div>
       <div class="row wrap" style="margin-top:10px"><a class="btn sm primary" href="#/gestor/empresa/${c.id}">Gerenciar</a>
         <button class="btn sm" data-act="co-valid" data-id="${c.id}">Validade</button>
@@ -332,6 +332,7 @@ Object.assign(acts, {
       ${raw(periodFields({ cur: '12m' }))}
       <h3 style="margin:6px 0 2px">Administrador da empresa</h3><p class="hint" style="margin-top:0">Ele aprova os alunos, cria usuários e define a validade de cada um.</p>
       <label class="f">Plano da plataforma<select class="in" name="plan_id" id="co-plan-sel"><option value="">Sem plano (sem limite)</option></select></label>
+      <label class="f">Indicada por (código de parceiro, opcional)<input class="in" name="referred_by" autocomplete="off" autocapitalize="characters" maxlength="16" placeholder="PAR-XXXXXX"><span class="hint">Se outra empresa indicou esta, as duas ganham desconto na mensalidade, dentro do teto de margem do plano.</span></label>
       <label class="f">Nome<input class="in" name="a_name" required maxlength="80"></label>
       ${raw(emailField('a_email', 'E-mail (será o login)'))}
       ${raw(waField('a_whatsapp'))}
@@ -393,7 +394,7 @@ Object.assign(acts, {
 
 Object.assign(forms, {
   'co-new': async d => {
-    await api('POST', 'companies', { name: d.name, plan_id: d.plan_id ? +d.plan_id : null, ...periodBody(d), admin: { name: d.a_name, email: d.a_email, whatsapp: d.a_whatsapp, password: d.a_password } });
+    await api('POST', 'companies', { name: d.name, plan_id: d.plan_id ? +d.plan_id : null, referred_by: d.referred_by || undefined, ...periodBody(d), admin: { name: d.a_name, email: d.a_email, whatsapp: d.a_whatsapp, password: d.a_password } });
     closeModal(); toast('Empresa criada.'); render();
   },
   'co-valid': async (d, f) => { await api('PATCH', `companies/${f.dataset.id}`, periodBody(d)); closeModal(); toast('Validade atualizada.'); render(); },

@@ -177,14 +177,24 @@ async function renewOpen() {
     <div class="scroll"><form data-form="pay-renew">${raw(planCards(r.plans))}${raw(taxField())}<button class="btn primary block" type="submit" ${r.enabled && r.plans.length ? '' : raw('disabled')}>Gerar PIX</button></form></div>`);
 }
 
+/** Cartão "Indique outra empresa": código, regra e quem a empresa já indicou (o desconto sai da plataforma, com teto de margem). */
+function partnerCard(pt) {
+  return html`<div class="card"><h3>Indique outra empresa</h3>
+    <p class="small muted" style="margin:4px 0 8px">Quando uma empresa criada com o seu código pagar a mensalidade, <b>você ganha ${fmtNum(pt.referrer_pct, 0)}% de desconto por ${pt.referrer_months} ${pl(pt.referrer_months, 'mês', 'meses')}</b> na sua mensalidade da plataforma, e ela ganha ${fmtNum(pt.referred_pct, 0)}% por ${pt.referred_months} ${pl(pt.referred_months, 'mês', 'meses')}. Passe o código ao gestor ao indicar.</p>
+    <div class="refcode">${pt.code}</div><button class="btn sm" data-act="copy-text" data-v="${pt.code}">${raw(ICON.copy)} Copiar código</button>
+    ${pt.was_referred_by ? raw(html`<p class="small muted" style="margin:10px 0 0">Sua empresa foi indicada por <b>${pt.was_referred_by.name}</b>${pt.was_referred_by.months_left ? ' · restam ' + pt.was_referred_by.months_left + ' ' + pl(pt.was_referred_by.months_left, 'mês', 'meses') + ' de desconto' : ''}.</p>`) : ''}
+    ${pt.referred.length ? raw(html`<ul class="list" style="margin-top:10px">${pt.referred.map(x => raw(html`<li><div class="grow"><div class="t">${x.name}</div><div class="s">${x.months_left ? 'seu desconto continua por ' + x.months_left + ' ' + pl(x.months_left, 'mês', 'meses') : 'desconto já usado'}</div></div><span class="badge ${x.status === 'ativa' ? 'tone-ok' : 'tone-bad'}">${x.status}</span></li>`))}</ul>`) : ''}</div>`;
+}
+
 /* ---- Assinatura dentro do app (aluno renova; administrador paga a plataforma) ---- */
 route(/^#\/assinatura$/, async () => {
   const o = await api('GET', 'pay/options');
   const until = o.access_until ? fmtD(o.access_until) : 'sem prazo';
   if (o.kind === 'empresa') return html`<div class="page-title"><div><div class="eyebrow">Plataforma</div><h1>Mensalidade da empresa</h1></div></div>
     <div class="card"><p class="muted" style="margin:0 0 8px">Acesso da empresa até <b>${until}</b>.</p>
-      ${o.plan ? raw(html`<h3>${o.plan.name} · ${money(o.plan.price_cents)} por mês</h3>`) : raw('<p>Sua empresa ainda não tem um plano definido. Fale com o gestor.</p>')}
-      ${o.enabled && o.plan ? raw(html`<form data-form="pay-create" style="margin-top:12px">${raw(taxField())}<button class="btn primary block" type="submit">Pagar 1 mês com PIX</button></form>`) : raw('<p class="hint">O pagamento online ainda não está ativo.</p>')}</div>`;
+      ${o.plan ? raw(html`<h3>${o.plan.name} · ${o.quote && o.quote.discount_cents ? '' : money(o.plan.price_cents) + ' por mês'}</h3>${o.quote && o.quote.discount_cents ? raw(html`<p style="margin:0"><s class="muted">${money(o.quote.list_cents)}</s> <b style="font-size:1.3rem">${money(o.quote.amount_cents)}</b> por mês</p><p class="small" style="color:var(--ok);margin:4px 0 0">Desconto de ${money(o.quote.discount_cents)} · ${o.quote.discount_note}</p>`) : ''}`) : raw('<p>Sua empresa ainda não tem um plano definido. Fale com o gestor.</p>')}
+      ${o.enabled && o.plan ? raw(html`<form data-form="pay-create" style="margin-top:12px">${raw(taxField())}<button class="btn primary block" type="submit">Pagar 1 mês com PIX</button></form>`) : raw('<p class="hint">O pagamento online ainda não está ativo.</p>')}</div>
+    ${o.partner ? raw(partnerCard(o.partner)) : ''}`;
   return html`<div class="page-title"><div><div class="eyebrow">Assinatura</div><h1>Renovar meu acesso</h1></div></div>
     <div class="card"><p class="muted" style="margin:0">Seu acesso vale até <b>${until}</b>. Ao pagar, o novo período soma ao que ainda resta.</p></div>
     ${o.enabled ? '' : raw('<div class="card note">O pagamento online ainda não está ativo. Fale com a sua academia para renovar.</div>')}
@@ -263,9 +273,15 @@ function finTab() {
         <label class="f">Desconto de quem indicou, por amigo (%)<input class="in" name="discount_referrer_pct" inputmode="decimal" value="${s.discount_referrer_pct}" required></label>
         <label class="f">Teto de desconto (%)<input class="in" name="discount_cap_pct" inputmode="decimal" value="${s.discount_cap_pct}" required></label>
         <label class="f">Comissão do personal (%)<input class="in" name="commission_pct" inputmode="decimal" value="${s.commission_pct}" required></label>
-        <label class="f">Comissão vale por (meses)<input class="in" name="commission_months" inputmode="numeric" value="${s.commission_months}" required></label></div>
+        <label class="f">Comissão vale por (meses)<input class="in" name="commission_months" inputmode="numeric" value="${s.commission_months}" required></label>
+        <label class="f">Teto de incentivos (% do preço)<input class="in" name="incentive_cap_pct" inputmode="decimal" value="${s.incentive_cap_pct}" required><span class="hint">Desconto + comissão de um pagamento nunca passam disto. A comissão não pode ser maior que o teto.</span></label></div>
         <div class="infobox"><span>Exemplo: plano Trimestral de R$ 210,00 (R$ 70,00 por mês) e desconto de 10%: abate R$ 7,00 e a renovação sai por R$ 203,00. A comissão do personal é sobre o valor pago (R$ 203,00).</span></div>
-        <button class="btn primary block" type="submit">Salvar regras</button></form></div>`;
+        <button class="btn primary block" type="submit">Salvar regras</button></form></div>
+    <div class="card" id="simB"><h3>Simulador: quanto sobra com cada aluno indicado?</h3><p class="hint">O dinheiro dos alunos é da <b>sua</b> empresa; a plataforma só cobra a mensalidade do seu plano.</p>
+      <div class="grid2"><label class="f">Preço do plano por aluno (R$/mês)<input class="in" inputmode="decimal" data-simb="price" value="${centsToInput((FIN.plans.find(p => p.months === 1) || FIN.plans[0] || { price_cents: 3000 }).price_cents / ((FIN.plans.find(p => p.months === 1) || FIN.plans[0] || { months: 1 }).months || 1))}"></label>
+        <label class="f">Alunos pagantes<input class="in" inputmode="numeric" data-simb="n" value="50"></label>
+        <label class="f">Mensalidade da plataforma (R$)<input class="in" inputmode="decimal" data-simb="fee" value="49,90"></label></div>
+      <div id="simB-out"></div></div>`;
   }
   if (FIN.tab === 'receber') return html`<div class="card"><h3>Registrar pagamento recebido</h3><p class="hint">Para pagamentos feitos fora do app (dinheiro, PIX direto, maquininha). O acesso do aluno é renovado igual.</p>
       <button class="btn primary block" data-act="fin-manual">Registrar pagamento</button></div>
@@ -281,19 +297,59 @@ function finTab() {
     <div class="day-h">Últimas cobranças</div>${raw(finRecent(d))}
     <details class="card"><summary><b>Como calculamos</b></summary><ul class="how" style="margin-top:8px"><li><b>Receita líquida</b> = receita bruta − descontos de indicação − comissões.</li><li><b>MRR</b> = soma do (valor pago ÷ meses do plano) de cada aluno com plano em vigor.</li><li><b>Vencidos no mês</b> = alunos que ficaram sem acesso neste mês ÷ (alunos com acesso + vencidos).</li><li><b>Crescimento</b> compara a receita líquida do mês com a do mês anterior.</li></ul></details>`;
 }
+function simBRefresh() {
+  const out = $('#simB-out'), form = $('form[data-form=fin-settings]'); if (!out || !form) return;
+  const g = n => parseFloat(String(form[n].value).replace(',', '.')) || 0, P = toCents($('[data-simb=price]').value) || 0, N = Math.max(0, +$('[data-simb=n]').value || 0), fee = toCents($('[data-simb=fee]').value) || 0;
+  const d = P * g('discount_referred_pct') / 100, com = (P - d) * g('commission_pct') / 100, cap = P * g('incentive_cap_pct') / 100;
+  let dd = d, cc = com; if (dd + cc > cap) { dd = Math.max(0, cap - cc); cc = (P - dd) * g('commission_pct') / 100; }
+  const first = P - dd - cc, rev = N * P;
+  out.innerHTML = html`<ul class="list sum"><li><span class="muted">Desconto do indicado (1 mês)</span><b>${money(dd)}</b></li><li><span class="muted">Comissão do personal</span><b>${money(cc)}</b></li><li><span class="muted"><b>Sobra no 1º pagamento do indicado</b></span><b class="${first >= 0 ? 'pos' : 'neg'}">${money(first)}</b></li><li><span class="muted">Receita com ${N} alunos (sem indicações)</span><b>${money(rev)}</b></li><li><span class="muted">(−) Mensalidade da plataforma</span><b class="neg">${money(fee)}</b></li><li><span class="muted"><b>Fica com a empresa por mês</b> (antes dos seus custos)</span><b class="pos">${money(rev - fee)}</b></li></ul>
+    ${(d + com > cap) ? raw('<div class="infobox"><span>Desconto + comissão passariam do teto de incentivos: o sistema reduz o desconto para respeitar o teto.</span></div>') : ''}`;
+}
+document.addEventListener('input', e => { if (e.target.matches?.('[data-simb]') || e.target.closest?.('form[data-form=fin-settings]')) simBRefresh(); });
 const finRecent = d => d.recent.length ? html`<div class="card"><ul class="list">${d.recent.map(p => raw(html`<li><div class="grow"><div class="t">${p.payer}</div><div class="s">${p.plan} · ${p.method === 'manual' ? 'manual' : 'PIX'} · ${fmtDate(p.when)}</div></div><b class="mono">${money(p.amount_cents)}</b><span class="badge ${p.status === 'pago' ? 'tone-ok' : p.status === 'pendente' ? 'tone-warn' : 'tone-bad'}">${p.status}</span></li>`))}</ul></div>` : html`<div class="empty">Nenhuma cobrança ainda.</div>`;
 
 /* =====================================================================
  *  Gestor geral: planos da plataforma e aprovação de exercícios
  * ===================================================================== */
+let PLT = null;
 route(/^#\/planos$/, async () => {
-  const { plans } = await api('GET', 'plans');
-  return html`<div class="page-title"><div><div class="eyebrow">Gestor geral</div><h1>Planos da plataforma</h1></div><button class="btn primary sm" data-act="plan-edit" data-id="">${raw(ICON.plus)} Plano</button></div>
-    <p class="hint">Cada empresa tem um plano com limite de personais e de alunos ativos. Campo em branco = ilimitado.</p>
+  PLT = await api('GET', 'platform/settings');
+  const { plans, settings: st, summary: sm } = PLT;
+  return html`<div class="page-title"><div><div class="eyebrow">Gestor geral</div><h1>Planos e margem</h1></div><button class="btn primary sm" data-act="plan-edit" data-id="">${raw(ICON.plus)} Plano</button></div>
+    <div class="grid2"><div class="stat big"><b>${money(sm.revenue_cents)}</b><span>receita mensal dos planos ativos (${sm.companies} ${pl(sm.companies, 'empresa', 'empresas')})</span></div>
+      <div class="stat big"><b class="${sm.margin_cents >= 0 ? 'pos' : 'neg'}">${money(sm.margin_cents)}</b><span>margem mensal depois do custo por conta (${fmtNum(sm.margin_pct, 1)}%)</span></div>
+      <div class="stat big"><b>${money(sm.cost_cents)}</b><span>custo variável por conta somado</span></div>
+      <div class="stat big"><b>${money(sm.discounts_cents)}</b><span>descontos de indicação em vigor (saem da sua margem)</span></div></div>
+    <div class="card"><h3>Indicação entre empresas</h3><p class="hint">O desconto sai do <b>seu</b> bolso, por isso nunca passa do <b>teto de margem</b> de cada plano (mostrado abaixo). Alunos e personais de cada empresa são problema da empresa, não da plataforma.</p>
+      <form data-form="platform-rules"><div class="grid2">
+        <label class="f">Desconto de quem foi indicado (%)<input class="in" name="b2b_referred_pct" inputmode="decimal" value="${st.b2b_referred_pct}" required></label>
+        <label class="f">...por quantos meses<input class="in" name="b2b_referred_months" inputmode="numeric" value="${st.b2b_referred_months}" required></label>
+        <label class="f">Desconto de quem indicou, por empresa (%)<input class="in" name="b2b_referrer_pct" inputmode="decimal" value="${st.b2b_referrer_pct}" required></label>
+        <label class="f">...por quantos meses<input class="in" name="b2b_referrer_months" inputmode="numeric" value="${st.b2b_referrer_months}" required></label></div>
+        <button class="btn primary block" type="submit">Salvar regras</button></form></div>
+    <div class="day-h">Planos da plataforma</div>
     ${plans.map(p => raw(html`<div class="card"><div class="row between"><h3>${p.name} ${p.active ? '' : raw('<span class="badge tone-bad">desativado</span>')}</h3><b class="mono">${money(p.price_cents)}<span class="small muted">/mês</span></b></div>
       <ul class="how"><li>${p.max_personals == null ? 'Personais ilimitados' : `${p.max_personals} ${pl(p.max_personals, 'personal', 'personais')}`}</li><li>${p.max_students == null ? 'Alunos ilimitados' : `${p.max_students} alunos ativos`}</li></ul>
-      <div class="row between"><span class="small muted">${p.companies} ${pl(p.companies, 'empresa', 'empresas')}</span><button class="btn sm" data-act="plan-edit" data-id="${p.id}" data-p="${JSON.stringify(p)}">Editar</button></div></div>`))}`;
-});
+      <ul class="list sum"><li><span class="muted">Custo variável por conta</span><b>${money(p.cost_cents)}</b></li><li><span class="muted">Margem por conta</span><b>${money(p.ceiling.margin_cents)} (${fmtNum(p.ceiling.margin_pct, 1)}%)</b></li><li><span class="muted">Margem mínima que você exige</span><b>${fmtNum(p.min_margin_pct, 0)}% (${money(p.ceiling.floor_cents)})</b></li><li><span class="muted">Teto de desconto por mês</span><b class="pos">${money(p.ceiling.max_discount_cents)} (${fmtNum(p.ceiling.max_discount_pct, 1)}%)</b></li></ul>
+      <div class="row between"><span class="small muted">${p.companies} ${pl(p.companies, 'empresa', 'empresas')}</span><button class="btn sm" data-act="plan-edit" data-id="${p.id}" data-p="${JSON.stringify(p)}">Editar</button></div></div>`))}
+    <div class="card" id="simA"><h3>Simulador: quanto custa uma indicação?</h3><p class="hint">Mostra o custo da indicação e em quantos meses ela se paga. Mexa nos números.</p>
+      <label class="f">Plano<select class="in" data-sima="plan">${plans.map(p => raw(html`<option value="${p.id}" data-price="${p.price_cents}" data-cost="${p.cost_cents}" data-mm="${p.min_margin_pct}">${p.name} · ${money(p.price_cents)}</option>`))}</select></label>
+      <div class="grid2"><label class="f">Quanto fica a empresa (meses)<input class="in" inputmode="numeric" data-sima="keep" value="12"></label></div>
+      <div id="simA-out"></div></div>`;
+}, { after: () => simARefresh() });
+function simARefresh() {
+  const box = $('#simA-out'); if (!box || !PLT) return;
+  const o = $('#simA select[data-sima=plan]').selectedOptions[0], P = +o.dataset.price, K = +o.dataset.cost, mm = +o.dataset.mm;
+  const keep = Math.max(1, +$('#simA [data-sima=keep]').value || 12), st = PLT.settings;
+  const floor = P * mm / 100, maxD = Math.max(0, P - K - floor);
+  const d1 = Math.min(P * st.b2b_referred_pct / 100, maxD), d2 = Math.min(P * st.b2b_referrer_pct / 100, maxD);
+  const c1 = d1 * st.b2b_referred_months, c2 = d2 * st.b2b_referrer_months, cac = c1 + c2, mon = P - K;
+  box.innerHTML = html`<ul class="list sum"><li><span class="muted">Desconto do indicado (${st.b2b_referred_months} ${pl(st.b2b_referred_months, 'mês', 'meses')})</span><b>${money(c1)}</b></li><li><span class="muted">Desconto de quem indicou (${st.b2b_referrer_months} ${pl(st.b2b_referrer_months, 'mês', 'meses')})</span><b>${money(c2)}</b></li><li><span class="muted"><b>Custo total da indicação</b></span><b class="neg">${money(cac)}</b></li><li><span class="muted">Margem por mês (sem desconto)</span><b>${money(mon)}</b></li><li><span class="muted">Margem do novo cliente em ${keep} meses, já sem o desconto dele</span><b>${money(mon * keep - c1)}</b></li><li><span class="muted"><b>Ganho líquido da indicação</b> (depois dos dois descontos)</span><b class="${mon * keep - cac >= 0 ? 'pos' : 'neg'}">${money(mon * keep - cac)}</b></li><li><span class="muted">A indicação se paga em</span><b>${mon > 0 ? (cac / mon <= 1 ? 'menos de 1 mês' : fmtNum(cac / mon, 1) + ' meses') : '–'}</b></li></ul>
+    ${(P * st.b2b_referred_pct / 100 > maxD || P * st.b2b_referrer_pct / 100 > maxD) ? raw('<div class="infobox"><span>O desconto pedido passa do teto do plano: o sistema aplica só o teto, para a sua margem mínima ficar protegida.</span></div>') : ''}`;
+}
+document.addEventListener('input', e => { if (e.target.matches?.('[data-sima]')) simARefresh(); });
+document.addEventListener('change', e => { if (e.target.matches?.('[data-sima]')) simARefresh(); });
 
 route(/^#\/aprovacoes$/, async () => {
   const { exercises } = await api('GET', 'approvals');
@@ -381,7 +437,7 @@ Object.assign(acts, {
   'pay-done': () => { closeModal(); if (S.user) render(); else { authModeVal = 'login'; S.renew = null; renderAuth(); toast('Pronto! Agora é só entrar.'); } },
   'renew-open': guard(() => renewOpen()),
   'forgot-email': guard(async () => { const r = await api('POST', 'password/forgot', { email: S.forgotEmail }); S.forgotMsg = r.message; toast('Se o e-mail existir, enviamos o link de novo.'); }),
-  'fin-tab': el => { FIN.tab = el.dataset.t; $$('[data-act=fin-tab]').forEach(b => b.setAttribute('aria-selected', b === el)); $('#fin-body').innerHTML = finTab(); },
+  'fin-tab': el => { setTimeout(simBRefresh, 0); FIN.tab = el.dataset.t; $$('[data-act=fin-tab]').forEach(b => b.setAttribute('aria-selected', b === el)); $('#fin-body').innerHTML = finTab(); },
   'cplan-edit': el => {
     const p = FIN.plans.find(x => x.id == el.dataset.id) || { id: '', name: '', months: 1, price_cents: 0, active: true };
     openModal(html`<div class="row between" style="margin-bottom:6px"><h2>${p.id ? 'Editar plano' : 'Novo plano'}</h2><button class="icon-btn" data-close aria-label="Fechar">${raw(ICON.x)}</button></div>
@@ -406,11 +462,14 @@ Object.assign(acts, {
         <label class="f">Plano<select class="in" name="plan_id">${FIN.plans.filter(p => p.active).map(p => raw(html`<option value="${p.id}">${p.name} · ${money(p.price_cents)}</option>`))}</select></label>
         <p class="hint">O acesso do aluno soma o período do plano. Descontos de indicação disponíveis são aplicados automaticamente.</p><button class="btn primary block" type="submit">Registrar e renovar acesso</button></form>`) : raw('<div class="empty">Cadastre um plano e tenha ao menos um aluno ativo.</div>')}`);
   }),
-  'plan-edit': el => {
+  'plan-edit': el => { setTimeout(() => { const f = $('.modal form[data-form=plan]'); if (f) ceilRefresh(f); }, 0);
     const p = el.dataset.p ? JSON.parse(el.dataset.p) : { id: '', name: '', price_cents: 0, max_personals: 1, max_students: 50, active: true };
     openModal(html`<div class="row between" style="margin-bottom:6px"><h2>${p.id ? 'Editar plano' : 'Novo plano'}</h2><button class="icon-btn" data-close aria-label="Fechar">${raw(ICON.x)}</button></div>
       <form data-form="plan" data-id="${p.id}"><label class="f">Nome<input class="in" name="name" value="${p.name}" maxlength="60" required></label>
         <label class="f">Mensalidade da empresa (R$)<input class="in" name="price" inputmode="decimal" value="${centsToInput(p.price_cents)}" required></label>
+        <div class="grid2"><label class="f">Custo variável por conta (R$ por mês)<input class="in" name="cost" inputmode="decimal" value="${centsToInput(p.cost_cents || 0)}" data-ceil placeholder="8,00"><span class="hint">Suporte, hospedagem rateada e taxas de pagamento.</span></label>
+        <label class="f">Margem mínima (% do preço)<input class="in" name="min_margin_pct" inputmode="decimal" value="${p.min_margin_pct ?? 40}" data-ceil><span class="hint">Nenhum desconto de indicação pode passar daqui.</span></label></div>
+        <div class="infobox" data-ceil-out><span>Preencha preço, custo e margem para ver o teto de desconto.</span></div>
         <div class="grid2"><label class="f">Máx. de personais<input class="in" name="max_personals" inputmode="numeric" value="${p.max_personals ?? ''}" placeholder="vazio = ilimitado"></label>
         <label class="f">Máx. de alunos ativos<input class="in" name="max_students" inputmode="numeric" value="${p.max_students ?? ''}" placeholder="vazio = ilimitado"></label></div>
         ${p.id ? raw(html`<label class="chk"><input type="checkbox" name="active" value="1" ${p.active ? raw('checked') : ''}> Plano ativo</label>`) : ''}
@@ -437,6 +496,14 @@ Object.assign(acts, {
   'mail-test': guard(async el => { el.disabled = true; try { const r = await api('POST', 'mail/test'); toast(r.ok ? `E-mail de teste enviado para ${r.to} (${r.mode}). Confira a caixa de entrada e o spam.` : `Falhou: ${r.error}`, !r.ok); } finally { el.disabled = false; } }),
 });
 
+function ceilRefresh(form) {
+  const out = form.querySelector('[data-ceil-out]'); if (!out) return;
+  const P = toCents(form.price.value), K = toCents(form.cost.value || '0'), mm = parseFloat(String(form.min_margin_pct.value).replace(',', '.'));
+  if (!Number.isFinite(P) || !Number.isFinite(K) || !Number.isFinite(mm)) return;
+  const floor = P * mm / 100, max = Math.max(0, P - K - floor);
+  out.innerHTML = '<span>Margem por conta: <b>' + money(P - K) + '</b> (' + fmtNum(P ? 100 * (P - K) / P : 0, 1) + '%). Margem mínima: <b>' + money(floor) + '</b>. <b>Teto de desconto por mês: ' + money(max) + ' (' + fmtNum(P ? 100 * max / P : 0, 1) + '%)</b>.</span>';
+}
+document.addEventListener('input', e => { const f = e.target.closest?.('form[data-form=plan]'); if (f && (e.target.matches('[data-ceil]') || e.target.name === 'price')) ceilRefresh(f); });
 const priceBody = d => { const c = toCents(d.price); if (!Number.isFinite(c) || c < 0) throw new Error('Informe o valor em reais, como 79,90.'); return c; };
 Object.assign(forms, {
   forgot: async d => { const r = await api('POST', 'password/forgot', { email: d.email }); S.forgotMsg = r.message; S.forgotEmail = d.email; authMode('forgot-sent'); },
@@ -453,8 +520,12 @@ Object.assign(forms, {
   },
   'fin-manual': async d => { const r = await api('POST', 'finance/manual', { user_id: +d.user_id, plan_id: +d.plan_id, company_id: FIN.cid || undefined }); closeModal(); toast('Pagamento registrado. Acesso até ' + fmtD(r.access_until) + '.'); render(); },
   plan: async (d, f) => {
-    const body = { name: d.name, price_cents: priceBody(d), max_personals: d.max_personals ? +d.max_personals : null, max_students: d.max_students ? +d.max_students : null, active: f.dataset.id ? !!d.active : true };
+    const body = { name: d.name, price_cents: priceBody(d), max_personals: d.max_personals ? +d.max_personals : null, max_students: d.max_students ? +d.max_students : null, cost_cents: Math.max(0, toCents(d.cost || '0')) || 0, min_margin_pct: parseFloat(String(d.min_margin_pct || '40').replace(',', '.')), active: f.dataset.id ? !!d.active : true };
     await api(f.dataset.id ? 'PUT' : 'POST', f.dataset.id ? `plans/${f.dataset.id}` : 'plans', body); closeModal(); toast('Plano salvo.'); render();
+  },
+  'platform-rules': async d => {
+    const body = Object.fromEntries(Object.entries(d).map(([k, v]) => [k, parseFloat(String(v).replace(',', '.'))]));
+    PLT = await api('PUT', 'platform/settings', body); toast('Regras entre empresas salvas.'); render();
   },
   'co-plan': async (d, f) => { await api('PATCH', `companies/${f.dataset.id}`, { plan_id: d.plan_id ? +d.plan_id : null }); closeModal(); toast('Plano da empresa atualizado.'); render(); },
   'appr-no': async (d, f) => { await api('POST', `approvals/${f.dataset.id}`, { decision: 'recusar', reason: d.reason }); closeModal(); toast('Exercício recusado.'); render(); },

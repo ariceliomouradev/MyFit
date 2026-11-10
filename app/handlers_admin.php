@@ -33,7 +33,7 @@ function company_out(array $c): array
             'days_left' => $until ? (int) floor((strtotime($until) - strtotime(date('Y-m-d'))) / 86400) : null,
             'users' => (int) ($c['n_users'] ?? 0), 'pending' => (int) ($c['n_pending'] ?? 0), 'alunos' => (int) ($c['n_alunos'] ?? 0),
             'personals' => (int) ($c['n_personals'] ?? 0), 'admins' => $c['admins'] ?? [],
-            'plan_id' => isset($c['plan_id']) ? (int) $c['plan_id'] : null, 'plan_name' => $c['plan_name'] ?? null,
+            'plan_id' => isset($c['plan_id']) ? (int) $c['plan_id'] : null, 'plan_name' => $c['plan_name'] ?? null, 'partner_code' => $c['partner_code'] ?? null,
             'max_personals' => isset($c['max_personals']) ? (int) $c['max_personals'] : null, 'max_students' => isset($c['max_students']) ? (int) $c['max_students'] : null,
             'alunos_ativos' => (int) ($c['n_alunos_ativos'] ?? 0)];
 }
@@ -90,13 +90,17 @@ function h_company_create(array $p, array $u): void
     $apass = require_strong_password($a['password'] ?? '');
     $awa = norm_whatsapp($a['whatsapp'] ?? '');
     $planId = plan_id_or_null($in['plan_id'] ?? null);
+    $refCode = strtoupper(trim(is_string($in['referred_by'] ?? null) ? $in['referred_by'] : ''));
+    $refCo = null;
+    if ($refCode !== '') { $refCo = Db::one("SELECT id FROM companies WHERE partner_code=? AND status='ativa'", [$refCode]); if (!$refCo) fail('Código de parceiro inválido, ou a empresa indicadora está suspensa.'); }
     if (Db::val('SELECT 1 FROM users WHERE email=?', [$aemail])) fail('Já existe um usuário com o e-mail do administrador.', 409);
 
     $pdo = Db::pdo();
     $pdo->beginTransaction();
     try {
-        Db::run("INSERT INTO companies (name,code,status,access_until,plan_id,created_at) VALUES (?,?, 'ativa',?,?,?)", [$name, company_code(), $until, $planId, now()]);
+        Db::run("INSERT INTO companies (name,code,status,access_until,plan_id,partner_code,created_at) VALUES (?,?, 'ativa',?,?,?,?)", [$name, company_code(), $until, $planId, partner_code_new(), now()]);
         $cid = Db::id();
+        if ($refCo) { $pc = platform_cfg(); Db::run('INSERT INTO company_referrals (referrer_company_id,referred_company_id,referred_months_left,referrer_months_left,created_at) VALUES (?,?,?,?,?)', [$refCo['id'], $cid, (int) $pc['b2b_referred_months'], (int) $pc['b2b_referrer_months'], now()]); }
         Db::run("INSERT INTO users (name,email,password_hash,whatsapp,role,status,company_id,created_at,approved_at,must_change_password) VALUES (?,?,?,?, 'admin','ativo',?,?,?,1)",
             [$aname, $aemail, hash_pw($apass), $awa, $cid, now(), now()]);
         $pdo->commit();

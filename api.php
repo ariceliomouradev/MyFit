@@ -16,6 +16,7 @@ require __DIR__ . '/app/handlers_eval.php';
 require __DIR__ . '/app/handlers_brand.php';
 require __DIR__ . '/app/notify.php';
 require __DIR__ . '/app/handlers_account.php';
+require __DIR__ . '/app/handlers_margin.php';
 require __DIR__ . '/app/handlers_finance.php';
 
 // [método, rota, handler, exige login]
@@ -86,6 +87,8 @@ $routes = [
     ['POST',   'plans',                      'h_plan_save',            true],
     ['PUT',    'plans/{id}',                 'h_plan_save',            true],
     ['DELETE', 'plans/{id}',                 'h_plan_delete',          true],
+    ['GET',    'platform/settings',          'h_platform_get',         true],
+    ['PUT',    'platform/settings',          'h_platform_put',         true],
     ['POST',   'company/exercises/{id}/submit', 'h_exercise_submit',   true],
     ['GET',    'approvals',                  'h_approvals',            true],
     ['POST',   'approvals/{id}',             'h_approval_decide',      true],
