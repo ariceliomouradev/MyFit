@@ -44,21 +44,21 @@ route(/^#\/gestor$/, async () => {
   const { companies } = await api('GET', 'companies');
   const tot = companies.reduce((a, c) => ({ users: a.users + c.users, pending: a.pending + c.pending }), { users: 0, pending: 0 });
   return html`
-    <div class="page-title"><div><div class="eyebrow">Gestor geral</div><h1>Empresas</h1></div><button class="btn primary sm" data-act="co-new">${raw(ICON.plus)} Empresa</button></div>
+    <div class="page-title"><div><div class="eyebrow">Gestor geral</div><h1>Empresas</h1></div><div class="row"><button class="btn sm" data-act="direct-new">${raw(ICON.plus)} Cliente direto</button><button class="btn primary sm" data-act="co-new">${raw(ICON.plus)} Empresa</button></div></div>
     <div class="grid3" style="margin-bottom:14px"><div class="stat"><b>${companies.length}</b><span>empresas</span></div><div class="stat"><b>${tot.users}</b><span>usuários</span></div><div class="stat"><b>${tot.pending}</b><span>aguardando aprovação</span></div></div>
     ${companies.length ? '' : raw('<div class="empty">Nenhuma empresa ainda. Crie a primeira e defina o administrador dela.</div>')}
     ${companies.map(c => raw(html`<div class="card co ${c.status}">
       <div class="row between wrap"><div style="min-width:0"><h3>${c.name}</h3>
         <div class="small muted">${c.alunos} ${pl(c.alunos, 'aluno', 'alunos')} · ${c.personals} ${pl(c.personals, 'personal', 'personais')} · ${c.users} usuários${c.pending ? ' · ' : ''}${c.pending ? raw(html`<b class="warn-t">${c.pending} aguardando</b>`) : ''}</div></div>
-        <span class="badge ${c.status === 'ativa' ? 'tone-ok' : 'tone-bad'}">${c.status === 'ativa' ? 'Ativa' : 'Suspensa'}</span></div>
+        <span class="row">${c.kind === 'solo' ? raw('<span class="badge">Personal solo</span>') : c.kind === 'direta' ? raw('<span class="badge">Clientes diretos</span>') : ''}<span class="badge ${c.status === 'ativa' ? 'tone-ok' : 'tone-bad'}">${c.status === 'ativa' ? 'Ativa' : 'Suspensa'}</span></span></div>
       <div class="row wrap" style="margin:8px 0"><span class="badge ${c.plan_name ? 'tone-ok' : ''}">${c.plan_name ? 'Plano ' + c.plan_name : 'sem plano'}</span><span class="badge ${c.max_students != null && c.alunos_ativos >= c.max_students ? 'tone-bad' : ''}">${c.alunos_ativos}${c.max_students != null ? ' de ' + c.max_students : ''} alunos · ${c.personals}${c.max_personals != null ? ' de ' + c.max_personals : ''} ${pl(c.personals, 'personal', 'personais')}</span><span class="badge tone-${daysTone(c.days_left)}">${c.access_until ? `${daysLabel(c.days_left)} · até ${fmtD(c.access_until)}` : 'sem prazo'}</span>
         <button class="badge code" data-act="copy" data-v="${c.code}" aria-label="Copiar código ${c.code}">Código ${c.code} ⧉</button>${c.partner_code ? raw(html`<button class="badge code" data-act="copy-text" data-v="${c.partner_code}" aria-label="Copiar código de parceiro ${c.partner_code}">Parceiro ${c.partner_code} ⧉</button>`) : ''}</div>
       <div class="small muted">Administrador${c.admins.length > 1 ? 'es' : ''}: ${c.admins.map(a => a.name + ' (' + a.email + ')').join(', ')}</div>
       <div class="row wrap" style="margin-top:10px"><a class="btn sm primary" href="#/gestor/empresa/${c.id}">Gerenciar</a>
-        <button class="btn sm" data-act="co-valid" data-id="${c.id}">Validade</button>
+        ${c.kind === 'direta' ? raw('<span class="small muted">Empresa interna: reúne os alunos que pagam direto à plataforma. Os preços ficam em Financeiro.</span>') : raw(html`<button class="btn sm" data-act="co-valid" data-id="${c.id}">Validade</button>
         <button class="btn sm" data-act="co-plan" data-id="${c.id}">Plano</button>
         <button class="btn sm ghost" data-act="co-toggle" data-id="${c.id}" data-st="${c.status}">${c.status === 'ativa' ? 'Suspender' : 'Reativar'}</button>
-        <button class="btn sm ghost" data-act="co-code" data-id="${c.id}">Novo código</button></div></div>`))}`;
+        <button class="btn sm ghost" data-act="co-code" data-id="${c.id}">Novo código</button>`)}</div></div>`))}`;
 });
 
 route(/^#\/gestor\/usuarios$/, async () => {
@@ -339,6 +339,20 @@ Object.assign(acts, {
       ${raw(pwField('a_password', 'Senha provisória', { auto: 'new-password', rules: true }))}
       <button class="btn primary block" type="submit">Criar empresa</button></form></div>`);
     $('#co-plan-sel', m).insertAdjacentHTML('beforeend', plans.filter(p => p.active).map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')); }),
+  'direct-new': guard(async () => { const { plans } = await api('GET', 'plans'); const solo = plans.filter(p => p.active && p.audience === 'solo');
+    const m = openModal(html`<div class="row between" style="margin-bottom:6px"><h2>Novo cliente direto</h2><button class="icon-btn" data-close aria-label="Fechar">${raw(ICON.x)}</button></div>
+    <p class="hint" style="margin-top:0">Para quem não vem por academia: paga direto à plataforma, como numa assinatura.</p>
+    <div class="scroll"><form data-form="direct-new" class="formv">
+      <label class="f">Tipo<select class="in" name="type" id="dn-type"><option value="aluno">Aluno solo (treina sozinho)</option><option value="personal" ${solo.length ? '' : raw('disabled')}>Personal solo (atende os próprios alunos)</option></select></label>
+      <label class="f" id="dn-plan" style="display:none">Plano do personal solo<select class="in" name="plan_id">${solo.map(p => raw(html`<option value="${p.id}">${p.name} · ${money(p.price_cents)}/mês${p.max_students != null ? ' · até ' + p.max_students + ' alunos' : ''}</option>`))}</select></label>
+      ${raw(periodFields({ cur: '3m' }))}
+      <label class="f">Nome<input class="in" name="name" required maxlength="80"></label>
+      ${raw(emailField('email', 'E-mail (será o login)'))}
+      ${raw(waField('whatsapp'))}
+      ${raw(pwField('password', 'Senha provisória', { auto: 'new-password', rules: true }))}
+      <p class="hint">A pessoa troca a senha no primeiro acesso. Quem é personal solo ganha a própria área para cadastrar alunos.</p>
+      <button class="btn primary block" type="submit">Criar cliente</button></form></div>`);
+    $('#dn-type', m).addEventListener('change', e => { $('#dn-plan', m).style.display = e.target.value === 'personal' ? '' : 'none'; }); }),
   'co-valid': guard(async el => {
     const { companies } = await api('GET', 'companies'); const c = companies.find(x => x.id == el.dataset.id);
     openModal(html`<div class="row between" style="margin-bottom:6px"><h2>Validade de ${c.name}</h2><button class="icon-btn" data-close aria-label="Fechar">${raw(ICON.x)}</button></div>
@@ -397,6 +411,7 @@ Object.assign(forms, {
     await api('POST', 'companies', { name: d.name, plan_id: d.plan_id ? +d.plan_id : null, referred_by: d.referred_by || undefined, ...periodBody(d), admin: { name: d.a_name, email: d.a_email, whatsapp: d.a_whatsapp, password: d.a_password } });
     closeModal(); toast('Empresa criada.'); render();
   },
+  'direct-new': async d => { const r = await api('POST', 'direct/clients', { type: d.type, name: d.name, email: d.email, whatsapp: d.whatsapp, password: d.password, plan_id: d.type === 'personal' && d.plan_id ? +d.plan_id : undefined, ...periodBody(d) }); closeModal(); toast(d.type === 'personal' ? 'Personal solo criado: a empresa dele já está pronta.' : 'Cliente direto criado.'); render(); },
   'co-valid': async (d, f) => { await api('PATCH', `companies/${f.dataset.id}`, periodBody(d)); closeModal(); toast('Validade atualizada.'); render(); },
   'user-new': async d => {
     await api('POST', 'manage/users', { name: d.name, email: d.email, whatsapp: d.whatsapp, password: d.password, role: d.role, personal_id: d.personal_id || null, company_id: S.user.role === 'super' ? TEAM.cid : undefined, ...periodBody(d) });

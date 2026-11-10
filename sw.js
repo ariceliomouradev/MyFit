@@ -1,5 +1,5 @@
 // Service worker: deixa o app instalável e abre rápido. Nunca guarda /api (dados sempre frescos).
-const CACHE = 'meus-treinos-v7';
+const CACHE = 'meus-treinos-v8';
 const SHELL = ['./', 'assets/css/app.css', 'assets/css/v3.css', 'assets/js/app.js', 'assets/js/perfil.js', 'assets/js/gestao.js', 'assets/js/marca.js', 'assets/js/financeiro.js', 'assets/img/logo-icone.svg', 'assets/img/logo.svg'];
 
 self.addEventListener('install', e => {

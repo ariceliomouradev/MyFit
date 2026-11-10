@@ -341,7 +341,7 @@ function pltTab() {
       <div id="simA-out"></div></div>`;
   return plans.length ? html`${plans.map(p => raw(html`<div class="card plancard2">
       <div class="row between"><h3>${p.name} ${p.active ? '' : raw('<span class="badge tone-bad">desativado</span>')}</h3><b class="mono">${money(p.price_cents)}<span class="small muted">/mês</span></b></div>
-      <p class="small muted" style="margin:2px 0 10px">${p.max_personals == null ? 'Personais ilimitados' : p.max_personals + ' ' + pl(p.max_personals, 'personal', 'personais')} · ${p.max_students == null ? 'alunos ilimitados' : p.max_students + ' alunos'} · ${p.companies} ${pl(p.companies, 'empresa', 'empresas')}</p>
+      <p class="small muted" style="margin:2px 0 10px">${p.audience === 'solo' ? raw('<b>Personal solo</b> · ') : ''}${p.max_personals == null ? 'Personais ilimitados' : p.max_personals + ' ' + pl(p.max_personals, 'personal', 'personais')} · ${p.max_students == null ? 'alunos ilimitados' : p.max_students + ' alunos'} · ${p.companies} ${pl(p.companies, 'empresa', 'empresas')}</p>
       <div class="tags"><span class="badge">Custo ${money(p.cost_cents)}</span><span class="badge tone-ok">Sobra ${money(p.ceiling.margin_cents)} (${fmtNum(p.ceiling.margin_pct, 0)}%)</span><span class="badge">Desconto máx. ${money(p.ceiling.effective_max_discount_cents)} (${fmtNum(p.ceiling.effective_max_discount_pct, 1)}%)</span></div>
       <button class="btn sm block" style="margin-top:12px" data-act="plan-edit" data-id="${p.id}" data-p="${JSON.stringify(p)}">Editar plano</button></div>`))}` : html`<div class="empty">Nenhum plano ainda. Toque em "+ Plano".</div>`;
 }
@@ -446,11 +446,13 @@ Object.assign(acts, {
   'forgot-email': guard(async () => { const r = await api('POST', 'password/forgot', { email: S.forgotEmail }); S.forgotMsg = r.message; toast('Se o e-mail existir, enviamos o link de novo.'); }),
   'fin-tab': el => { setTimeout(simBRefresh, 0); FIN.tab = el.dataset.t; $$('[data-act=fin-tab]').forEach(b => b.setAttribute('aria-selected', b === el)); $('#fin-body').innerHTML = finTab(); },
   'cplan-edit': el => {
-    const p = FIN.plans.find(x => x.id == el.dataset.id) || { id: '', name: '', months: 1, price_cents: 0, active: true };
+    const p = FIN.plans.find(x => x.id == el.dataset.id) || { id: '', name: '', months: 1, price_cents: 0, active: true, cost_cents: 0, min_margin_pct: 40 };
+    const direct = (FIN.companies || []).find(c => c.id === FIN.cid)?.kind === 'direta';
     openModal(html`<div class="row between" style="margin-bottom:6px"><h2>${p.id ? 'Editar plano' : 'Novo plano'}</h2><button class="icon-btn" data-close aria-label="Fechar">${raw(ICON.x)}</button></div>
       <form data-form="cplan" data-id="${p.id}"><label class="f">Nome do plano<input class="in" name="name" value="${p.name}" maxlength="60" required placeholder="Ex.: Trimestral"></label>
         <label class="f">Duração<select class="in" name="months">${[1, 2, 3, 6, 12, 24].map(m => raw(html`<option value="${m}" ${m === p.months ? raw('selected') : ''}>${m} ${pl(m, 'mês', 'meses')}</option>`))}</select></label>
         <label class="f">Valor do plano inteiro (R$)<input class="in" name="price" inputmode="decimal" value="${p.price_cents ? centsToInput(p.price_cents) : ''}" required placeholder="210,00"></label>
+        ${direct ? raw(html`<div class="fgroup"><div class="fg-t">Custo e margem (clientes diretos)</div><div class="grid2"><label class="f">Custo do plano (R$)<input class="in" name="cost" inputmode="decimal" value="${centsToInput(p.cost_cents || 0)}" placeholder="6,00"></label><label class="f">Margem mínima (%)<input class="in" name="min_margin_pct" inputmode="decimal" value="${p.min_margin_pct ?? 40}"></label></div><p class="hint" style="margin:0">O desconto de indicação sai da plataforma: no máximo 10% e nunca abaixo da margem mínima.</p></div>`) : ''}
         ${p.id ? raw(html`<label class="chk"><input type="checkbox" name="active" value="1" ${p.active ? raw('checked') : ''}> Plano ativo (aparece para os alunos)</label>`) : ''}
         <div class="stack"><button class="btn primary block" type="submit">Salvar plano</button>${p.id ? raw(html`<button type="button" class="btn danger block" data-act="cplan-del" data-id="${p.id}">Excluir plano</button>`) : ''}</div></form>`);
   },
@@ -470,10 +472,11 @@ Object.assign(acts, {
         <p class="hint">O acesso do aluno soma o período do plano. Descontos de indicação disponíveis são aplicados automaticamente.</p><button class="btn primary block" type="submit">Registrar e renovar acesso</button></form>`) : raw('<div class="empty">Cadastre um plano e tenha ao menos um aluno ativo.</div>')}`);
   }),
   'plan-edit': el => {
-    const p = el.dataset.p ? JSON.parse(el.dataset.p) : { id: '', name: '', price_cents: 0, max_personals: 1, max_students: 50, active: true, cost_cents: 0, min_margin_pct: 40 };
+    const p = el.dataset.p ? JSON.parse(el.dataset.p) : { id: '', name: '', price_cents: 0, max_personals: 1, max_students: 50, active: true, cost_cents: 0, min_margin_pct: 40, audience: 'empresa' };
     openModal(html`<div class="row between" style="margin-bottom:10px"><h2>${p.id ? 'Editar plano' : 'Novo plano'}</h2><button class="icon-btn" data-close aria-label="Fechar">${raw(ICON.x)}</button></div>
-      <div class="scroll"><form data-form="plan" data-id="${p.id}" class="formv">
+      <div class="scroll"><form data-form="plan" data-id="${p.id}" data-aud="${p.audience || 'empresa'}" class="formv">
         <label class="f">Nome do plano<input class="in" name="name" value="${p.name}" maxlength="60" required></label>
+        <label class="f">Para quem<select class="in" name="audience" ${p.companies ? raw('disabled') : ''}><option value="empresa" ${p.audience !== 'solo' ? raw('selected') : ''}>Academias e empresas</option><option value="solo" ${p.audience === 'solo' ? raw('selected') : ''}>Personal solo (uma pessoa)</option></select>${p.companies ? raw('<span class="hint">Há empresas neste plano: o público não pode mudar.</span>') : ''}</label>
         <label class="f">Mensalidade da empresa (R$)<input class="in" name="price" inputmode="decimal" value="${centsToInput(p.price_cents)}" required></label>
         <div class="fgroup"><div class="fg-t">Limites</div><div class="grid2">
           <label class="f">Personais<input class="in" name="max_personals" inputmode="numeric" value="${p.max_personals ?? ''}" placeholder="vazio = ilimitado"></label>
@@ -492,7 +495,7 @@ Object.assign(acts, {
   'co-plan': guard(async el => {
     const [{ companies, plans }] = [await api('GET', 'companies')]; const c = companies.find(x => x.id == el.dataset.id);
     openModal(html`<div class="row between" style="margin-bottom:6px"><h2>Plano de ${c.name}</h2><button class="icon-btn" data-close aria-label="Fechar">${raw(ICON.x)}</button></div>
-      <form data-form="co-plan" data-id="${c.id}"><label class="f">Plano<select class="in" name="plan_id"><option value="">Sem plano (sem limite)</option>${plans.filter(p => p.active || p.id === c.plan_id).map(p => raw(html`<option value="${p.id}" ${p.id === c.plan_id ? raw('selected') : ''}>${p.name} · ${money(p.price_cents)}/mês</option>`))}</select></label>
+      <form data-form="co-plan" data-id="${c.id}"><label class="f">Plano<select class="in" name="plan_id"><option value="">Sem plano (sem limite)</option>${plans.filter(p => (p.audience || 'empresa') === (c.kind === 'solo' ? 'solo' : 'empresa') && (p.active || p.id === c.plan_id)).map(p => raw(html`<option value="${p.id}" ${p.id === c.plan_id ? raw('selected') : ''}>${p.name} · ${money(p.price_cents)}/mês</option>`))}</select></label>
         <p class="hint">Uso atual: ${c.personals} personais e ${c.alunos_ativos} alunos ativos. Mudar de plano não apaga ninguém; só impede novas aprovações acima do limite.</p><button class="btn primary block" type="submit">Salvar</button></form>`);
   }),
   'appr-ok': guard(async el => { await api('POST', `approvals/${el.dataset.id}`, { decision: 'aprovar' }); toast('Exercício aprovado na lista geral.'); render(); }),
@@ -525,6 +528,7 @@ Object.assign(forms, {
   'pay-renew': async d => { const r = await api('POST', 'pay/renew', { ...S.renew, plan_id: +d.plan_id, tax_id: d.tax_id }); showPix(r.payment); },
   cplan: async (d, f) => {
     const body = { name: d.name, months: +d.months, price_cents: priceBody(d), active: f.dataset.id ? !!d.active : true, company_id: FIN.cid || undefined };
+    if (d.cost !== undefined) { body.cost_cents = Math.max(0, toCents(d.cost || '0')) || 0; body.min_margin_pct = parseFloat(String(d.min_margin_pct || '40').replace(',', '.')); }
     const r = await api(f.dataset.id ? 'PUT' : 'POST', f.dataset.id ? `finance/plans/${f.dataset.id}` : 'finance/plans', body); FIN.plans = r.plans; closeModal(); toast('Plano salvo.'); render();
   },
   'fin-settings': async d => {
@@ -534,6 +538,7 @@ Object.assign(forms, {
   'fin-manual': async d => { const r = await api('POST', 'finance/manual', { user_id: +d.user_id, plan_id: +d.plan_id, company_id: FIN.cid || undefined }); closeModal(); toast('Pagamento registrado. Acesso até ' + fmtD(r.access_until) + '.'); render(); },
   plan: async (d, f) => {
     const body = { name: d.name, price_cents: priceBody(d), max_personals: d.max_personals ? +d.max_personals : null, max_students: d.max_students ? +d.max_students : null, cost_cents: Math.max(0, toCents(d.cost || '0')) || 0, min_margin_pct: parseFloat(String(d.min_margin_pct || '40').replace(',', '.')), active: f.dataset.id ? !!d.active : true };
+    body.audience = d.audience || f.dataset.aud || 'empresa';
     await api(f.dataset.id ? 'PUT' : 'POST', f.dataset.id ? `plans/${f.dataset.id}` : 'plans', body); closeModal(); toast('Plano salvo.'); render();
   },
   'platform-rules': async d => {

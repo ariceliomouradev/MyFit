@@ -33,7 +33,7 @@ function company_out(array $c): array
             'days_left' => $until ? (int) floor((strtotime($until) - strtotime(date('Y-m-d'))) / 86400) : null,
             'users' => (int) ($c['n_users'] ?? 0), 'pending' => (int) ($c['n_pending'] ?? 0), 'alunos' => (int) ($c['n_alunos'] ?? 0),
             'personals' => (int) ($c['n_personals'] ?? 0), 'admins' => $c['admins'] ?? [],
-            'plan_id' => isset($c['plan_id']) ? (int) $c['plan_id'] : null, 'plan_name' => $c['plan_name'] ?? null, 'partner_code' => $c['partner_code'] ?? null,
+            'plan_id' => isset($c['plan_id']) ? (int) $c['plan_id'] : null, 'plan_name' => $c['plan_name'] ?? null, 'partner_code' => $c['partner_code'] ?? null, 'kind' => $c['kind'] ?? 'empresa', 'code_direct' => null,
             'max_personals' => isset($c['max_personals']) ? (int) $c['max_personals'] : null, 'max_students' => isset($c['max_students']) ? (int) $c['max_students'] : null,
             'alunos_ativos' => (int) ($c['n_alunos_ativos'] ?? 0)];
 }
@@ -41,6 +41,9 @@ function company_out(array $c): array
 /** Garante que a empresa não passe do limite do plano (NULL = sem plano definido ou ilimitado). */
 function plan_limit_check(int $cid, string $role, ?int $ignoreUserId = null): void
 {
+    $kind = company_kind($cid);
+    if ($kind === 'solo' && $role === 'personal') fail('Esta é uma empresa de um personal só: quem atende os alunos é o próprio dono. Não há outros personais.', 409);
+    if ($kind === 'direta' && $role !== 'aluno') fail('A empresa de clientes diretos só tem alunos.', 409);
     $c = Db::one('SELECT p.name, p.max_personals, p.max_students FROM companies c LEFT JOIN plans p ON p.id=c.plan_id WHERE c.id=?', [$cid]);
     if (!$c || $c['name'] === null) return;
     if ($role === 'personal' && $c['max_personals'] !== null) {
@@ -68,15 +71,16 @@ function companies_query(?int $only = null): array
     return array_map('company_out', $rows);
 }
 
-function plan_id_or_null(mixed $v): ?int
+function plan_id_or_null(mixed $v, string $audience = 'empresa'): ?int
 {
     if ($v === null || $v === '' || $v === 0 || $v === '0') return null;
     $id = (int) $v;
     if (!Db::val('SELECT 1 FROM plans WHERE id=?', [$id])) fail('Plano não encontrado.');
+    if (!Db::val('SELECT 1 FROM plans WHERE id=? AND audience=?', [$id, $audience])) fail($audience === 'solo' ? 'Este plano é para academias. Escolha um plano de personal solo.' : 'Este plano é para personal solo. Escolha um plano de academia.');
     return $id;
 }
 
-function h_companies(array $p, array $u): void { require_role($u, 'super'); j(['companies' => companies_query(), 'plans' => plans_list()]); }
+function h_companies(array $p, array $u): void { require_role($u, 'super'); j(['companies' => companies_query(), 'plans' => plans_list(), 'direct_company_id' => direct_company_id()]); }
 
 function h_company_create(array $p, array $u): void
 {
@@ -119,7 +123,8 @@ function h_company_update(array $p, array $u): void
     $until = $c['access_until'];
     if (!empty($in['period'])) $until = period_to_date($in['period'], $in['custom'] ?? null, !empty($in['extend']) ? $c['access_until'] : null);
     $code = !empty($in['new_code']) ? company_code() : $c['code'];
-    $planId = array_key_exists('plan_id', $in) ? plan_id_or_null($in['plan_id']) : $c['plan_id'];
+    $planId = array_key_exists('plan_id', $in) ? plan_id_or_null($in['plan_id'], ($c['kind'] ?? 'empresa') === 'solo' ? 'solo' : 'empresa') : $c['plan_id'];
+    if (($c['kind'] ?? 'empresa') === 'direta' && $planId) fail('A empresa de clientes diretos não tem plano da plataforma.');
     Db::run('UPDATE companies SET name=?, status=?, access_until=?, code=?, plan_id=? WHERE id=?', [$name, $status, $until, $code, $planId, $c['id']]);
     j(['company' => companies_query((int) $c['id'])[0]]);
 }
@@ -217,6 +222,9 @@ function h_user_create(array $p, array $u): void
     $role = $in['role'] ?? 'aluno';
     $allowed = $u['role'] === 'super' ? ['aluno', 'personal', 'admin'] : ['aluno', 'personal'];
     if (!in_array($role, $allowed, true)) fail('Perfil inválido.');
+    $kind = company_kind($cid);
+    if ($kind === 'direta' && $role !== 'aluno') fail('A empresa de clientes diretos só tem alunos.', 409);
+    if ($kind === 'solo' && $role === 'admin') fail('Uma empresa de um personal só tem um único administrador (o próprio dono).', 409);
     $name = v_str($in['name'] ?? null, 'Nome', 2, 80);
     $email = valid_email($in['email'] ?? null);
     $pass = require_strong_password($in['password'] ?? '');
@@ -357,6 +365,7 @@ function student_target(array $u, int $id): array
 function can_view_photos(array $viewer, array $owner): bool
 {
     if ((int) $viewer['id'] === (int) $owner['id'] || $viewer['role'] === 'super') return true;
+    if ($viewer['role'] === 'admin' && (int) $owner['company_id'] === (int) $viewer['company_id'] && acts_as_personal($viewer)) return true; // empresa solo: ele é o personal
     return $viewer['role'] === 'personal' && (int) $owner['personal_id'] === (int) $viewer['id'] && (int) $owner['company_id'] === (int) $viewer['company_id'];
 }
 
@@ -375,7 +384,7 @@ function h_student_get(array $p, array $u): void
        'evaluations' => evaluations_for($uid, can_view_photos($u, $t)),
        'photos_visible' => can_view_photos($u, $t),
        'routines' => routines_for($uid),
-       'can_edit' => in_array($u['role'], ['personal', 'super'], true),
+       'can_edit' => acts_as_personal($u),
        'workouts' => array_map(fn($r) => ['id' => (int) $r['id'], 'name' => $r['name'], 'started_at' => iso($r['started_at']), 'finished_at' => iso($r['finished_at']),
                                           'sets' => (int) $r['sets'], 'volume' => (float) $r['volume'], 'prs' => (int) $r['prs']], $workouts),
        'overview' => overview_data($t)]);
@@ -384,7 +393,8 @@ function h_student_get(array $p, array $u): void
 /** O personal troca exercícios, séries, repetições e descanso das rotinas do aluno. Nome e dia da rotina não mudam. */
 function h_student_routine_update(array $p, array $u): void
 {
-    require_role($u, 'personal', 'super');
+    require_role($u, 'personal', 'admin', 'super');
+    if (!acts_as_personal($u)) fail('Você não tem permissão para isso.', 403);
     $t = student_target($u, (int) $p['id']);
     $rid = (int) $p['rid'];
     if (!Db::val('SELECT 1 FROM routines WHERE id=? AND user_id=?', [$rid, $t['id']])) fail('Rotina não encontrada.', 404);

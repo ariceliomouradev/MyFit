@@ -94,7 +94,7 @@ function plans_list(): array
     $rows = Db::all('SELECT p.*, (SELECT COUNT(*) FROM companies c WHERE c.plan_id=p.id) n_companies FROM plans p ORDER BY p.position, p.id');
     return array_map(fn($r) => ['id' => (int) $r['id'], 'name' => $r['name'], 'price_cents' => (int) $r['price_cents'], 'max_personals' => $r['max_personals'] === null ? null : (int) $r['max_personals'],
         'max_students' => $r['max_students'] === null ? null : (int) $r['max_students'], 'active' => (bool) $r['active'], 'companies' => (int) $r['n_companies'],
-        'cost_cents' => (int) ($r['cost_cents'] ?? 0), 'min_margin_pct' => (float) ($r['min_margin_pct'] ?? 40), 'ceiling' => plan_ceiling($r)], $rows);
+        'audience' => $r['audience'] ?? 'empresa', 'cost_cents' => (int) ($r['cost_cents'] ?? 0), 'min_margin_pct' => (float) ($r['min_margin_pct'] ?? 40), 'ceiling' => plan_ceiling($r)], $rows);
 }
 function h_plans(array $p, array $u): void { require_role($u, 'super'); j(['plans' => plans_list()]); }
 
@@ -106,22 +106,25 @@ function plan_input(): array
         return v_int($v, $label, 1, 1_000_000);
     };
     return [v_str($in['name'] ?? null, 'Nome do plano', 2, 60), v_int($in['price_cents'] ?? 0, 'Preço', 0, 100_000_00), $lim($in['max_personals'] ?? null, 'Limite de personais'), $lim($in['max_students'] ?? null, 'Limite de alunos'), !array_key_exists('active', $in) || (bool) $in['active'],
-        array_key_exists('cost_cents', $in) ? v_int($in['cost_cents'], 'Custo por conta', 0, 100_000_00) : null, array_key_exists('min_margin_pct', $in) ? v_num($in['min_margin_pct'], 'Margem mínima', 0, 95) : null];
+        array_key_exists('cost_cents', $in) ? v_int($in['cost_cents'], 'Custo por conta', 0, 100_000_00) : null, array_key_exists('min_margin_pct', $in) ? v_num($in['min_margin_pct'], 'Margem mínima', 0, 95) : null,
+        in_array($in['audience'] ?? 'empresa', ['empresa', 'solo'], true) ? ($in['audience'] ?? 'empresa') : fail('Público do plano inválido (academia ou personal solo).')];
 }
 function h_plan_save(array $p, array $u): void
 {
     require_role($u, 'super');
-    [$name, $price, $mp, $ms, $active, $cost, $mm] = plan_input();
+    [$name, $price, $mp, $ms, $active, $cost, $mm, $aud] = plan_input();
     if ($cost !== null && $cost > $price) fail('O custo por conta não pode ser maior que o preço do plano.');
     if (isset($p['id'])) {
         $old = Db::one('SELECT cost_cents, min_margin_pct FROM plans WHERE id=?', [(int) $p['id']]);
         if (!$old) fail('Plano não encontrado.', 404);
         $cost ??= (int) $old['cost_cents']; $mm ??= (float) $old['min_margin_pct'];
+        $oldAud = (string) Db::val('SELECT audience FROM plans WHERE id=?', [(int) $p['id']]);
+        if ($oldAud !== $aud && Db::val('SELECT 1 FROM companies WHERE plan_id=?', [(int) $p['id']])) fail('Há empresas neste plano: não dá para trocar o público dele.', 409);
         if ($cost > $price) fail('O custo por conta não pode ser maior que o preço do plano.');
-        Db::run('UPDATE plans SET name=?, price_cents=?, max_personals=?, max_students=?, active=?, cost_cents=?, min_margin_pct=? WHERE id=?', [$name, $price, $mp, $ms, (int) $active, $cost, $mm, (int) $p['id']]);
+        Db::run('UPDATE plans SET name=?, price_cents=?, max_personals=?, max_students=?, active=?, cost_cents=?, min_margin_pct=?, audience=? WHERE id=?', [$name, $price, $mp, $ms, (int) $active, $cost, $mm, $aud, (int) $p['id']]);
         $id = (int) $p['id'];
     } else {
-        Db::run('INSERT INTO plans (name,price_cents,max_personals,max_students,active,cost_cents,min_margin_pct,position,created_at) VALUES (?,?,?,?,?,?,?,?,?)', [$name, $price, $mp, $ms, (int) $active, $cost ?? 0, $mm ?? 40, (int) Db::val('SELECT COALESCE(MAX(position),0)+1 FROM plans'), now()]);
+        Db::run('INSERT INTO plans (name,price_cents,max_personals,max_students,active,cost_cents,min_margin_pct,audience,position,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)', [$name, $price, $mp, $ms, (int) $active, $cost ?? 0, $mm ?? 40, $aud, (int) Db::val('SELECT COALESCE(MAX(position),0)+1 FROM plans'), now()]);
         $id = Db::id();
     }
     j(['plans' => plans_list(), 'id' => $id], isset($p['id']) ? 200 : 201);

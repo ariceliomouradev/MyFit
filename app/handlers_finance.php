@@ -139,7 +139,7 @@ function pay_apply_paid(int $id): bool
 /* ---------- Cálculo de preço, descontos e comissão ---------- */
 function company_fin(int $cid): array
 {
-    $c = Db::one('SELECT id,name,commission_pct,commission_months,discount_referred_pct,discount_referrer_pct,discount_cap_pct,incentive_cap_pct,access_until,status,plan_id FROM companies WHERE id=?', [$cid]);
+    $c = Db::one('SELECT id,name,kind,commission_pct,commission_months,discount_referred_pct,discount_referrer_pct,discount_cap_pct,incentive_cap_pct,access_until,status,plan_id FROM companies WHERE id=?', [$cid]);
     if (!$c) fail('Empresa não encontrada.', 404);
     return $c;
 }
@@ -181,8 +181,13 @@ function pay_quote(array $payer, array $plan): array
         $discount = max(0, $capTotal - $comCents); $amount = max(100, $list - $discount); $discount = $list - $amount; $limited = true;
         if ($comUser) $comCents = (int) round($amount * (float) $c['commission_pct'] / 100);
     }
+    $limitedPlat = false;
+    if (($c['kind'] ?? 'empresa') === 'direta') { // clientes diretos pagam à plataforma: o desconto sai da margem dela
+        $maxD = min((int) round($list * PLATFORM_MAX_DISCOUNT_PCT / 100), max(0, $list - (int) ($plan['cost_cents'] ?? 0) - (int) round($list * (float) ($plan['min_margin_pct'] ?? 40) / 100)));
+        if ($discount > $maxD) { $discount = $maxD; $amount = max(100, $list - $discount); $discount = $list - $amount; $limitedPlat = true; }
+    }
     return ['list_cents' => $list, 'monthly_cents' => $monthly, 'discount_cents' => $discount, 'amount_cents' => $amount, 'discount_pct' => $pctTotal,
-            'discount_note' => $note ? implode(' + ', $note) . ' sobre 1 mês' . ($limited ? ' (limitado pelo teto de incentivos da empresa)' : '') : null, 'referral_id' => $refId, 'credit_ids' => $creditIds, 'commission_user_id' => $comUser, 'commission_cents' => $comCents];
+            'discount_note' => $note ? implode(' + ', $note) . ' sobre 1 mês' . ($limited ? ' (limitado pelo teto de incentivos da empresa)' : '') . ($limitedPlat ? ' (limitado a ' . fmt_pct(PLATFORM_MAX_DISCOUNT_PCT) . ' e à margem mínima do plano)' : '') : null, 'referral_id' => $refId, 'credit_ids' => $creditIds, 'commission_user_id' => $comUser, 'commission_cents' => $comCents];
 }
 
 function pay_public(array $p): array
@@ -374,7 +379,7 @@ function h_fin_settings_put(array $p, array $u): void
 
 function cplans_out(int $cid): array
 {
-    return array_map(fn($r) => ['id' => (int) $r['id'], 'name' => $r['name'], 'months' => (int) $r['months'], 'price_cents' => (int) $r['price_cents'], 'monthly_cents' => (int) round($r['price_cents'] / max(1, $r['months'])), 'active' => (bool) $r['active']],
+    return array_map(fn($r) => ['id' => (int) $r['id'], 'name' => $r['name'], 'months' => (int) $r['months'], 'price_cents' => (int) $r['price_cents'], 'cost_cents' => (int) ($r['cost_cents'] ?? 0), 'min_margin_pct' => (float) ($r['min_margin_pct'] ?? 40), 'monthly_cents' => (int) round($r['price_cents'] / max(1, $r['months'])), 'active' => (bool) $r['active']],
         Db::all('SELECT * FROM company_plans WHERE company_id=? ORDER BY active DESC, months, id', [$cid]));
 }
 function h_cplans(array $p, array $u): void { j(['plans' => cplans_out(fin_company($u))]); }
@@ -383,12 +388,14 @@ function h_cplan_save(array $p, array $u): void
     $cid = fin_company($u); $in = body();
     $name = v_str($in['name'] ?? null, 'Nome do plano', 2, 60); $months = v_int($in['months'] ?? null, 'Duração (meses)', 1, 36); $price = v_int($in['price_cents'] ?? null, 'Preço', 100, 10_000_000);
     $active = !array_key_exists('active', $in) || (bool) $in['active'];
+    $direct = company_kind($cid) === 'direta';
+    $cost = $direct ? v_int($in['cost_cents'] ?? 0, 'Custo', 0, $price) : 0; $mm = $direct ? v_num($in['min_margin_pct'] ?? 40, 'Margem mínima', 0, 95) : 40;
     if (isset($p['id'])) {
         if (!Db::val('SELECT 1 FROM company_plans WHERE id=? AND company_id=?', [(int) $p['id'], $cid])) fail('Plano não encontrado.', 404);
-        Db::run('UPDATE company_plans SET name=?, months=?, price_cents=?, active=? WHERE id=?', [$name, $months, $price, (int) $active, (int) $p['id']]);
+        Db::run('UPDATE company_plans SET name=?, months=?, price_cents=?, active=?' . ($direct ? ', cost_cents=?, min_margin_pct=?' : '') . ' WHERE id=?', array_merge([$name, $months, $price, (int) $active], $direct ? [$cost, $mm] : [], [(int) $p['id']]));
     } else {
         if ((int) Db::val('SELECT COUNT(*) FROM company_plans WHERE company_id=?', [$cid]) >= 20) fail('Limite de 20 planos por empresa.');
-        Db::run('INSERT INTO company_plans (company_id,name,months,price_cents,active,created_at) VALUES (?,?,?,?,?,?)', [$cid, $name, $months, $price, (int) $active, now()]);
+        Db::run('INSERT INTO company_plans (company_id,name,months,price_cents,active,cost_cents,min_margin_pct,created_at) VALUES (?,?,?,?,?,?,?,?)', [$cid, $name, $months, $price, (int) $active, $cost, $mm, now()]);
     }
     j(['plans' => cplans_out($cid)], isset($p['id']) ? 200 : 201);
 }
