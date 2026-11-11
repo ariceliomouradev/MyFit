@@ -21,7 +21,7 @@ function pb_cfg(): ?array
     if (!is_array($c) || empty($c['token'])) return null;
     $env = ($c['env'] ?? 'sandbox') === 'production' ? 'production' : 'sandbox';
     $base = !empty($c['base_url']) ? (string) $c['base_url'] : ($env === 'production' ? 'https://api.pagseguro.com' : 'https://sandbox.api.pagseguro.com');
-    return ['token' => (string) $c['token'], 'env' => $env, 'base' => rtrim($base, '/')];
+    return ['token' => (string) $c['token'], 'env' => $env, 'base' => rtrim($base, '/'), 'card' => !empty($c['card']), 'debit' => !empty($c['debit'])];
 }
 
 /** Chamada autenticada ao PagBank. Devolve [status, json, texto]. */
@@ -72,24 +72,75 @@ function pb_create_pix(array $pay, array $payer, string $taxId, ?array $acct = n
     return ['order_id' => (string) $json['id'], 'charge_id' => isset($ch['id']) ? (string) $ch['id'] : null, 'text' => (string) $text, 'qr' => $qr, 'expires' => date('Y-m-d H:i:s', strtotime($exp))];
 }
 
-/** Pergunta ao PagBank o estado do pedido e atualiza o pagamento. Devolve o status final. */
-function pb_sync(array $pay): string
+/** Cria o checkout hospedado do PagBank (cartão): a pessoa digita o cartão na página do PagBank, nunca no nosso app. */
+function pb_create_checkout(array $pay, array $payer, string $taxId, array $acct): array
 {
-    if (empty($pay['pb_order_id']) || $pay['status'] === 'pago') return $pay['status'];
+    $amount = (int) $pay['amount_cents'];
+    $exp = (new DateTimeImmutable('+60 minutes'))->format('c');
+    $methods = []; $cfgs = [];
+    if (!empty($acct['card'])) { $methods[] = ['type' => 'CREDIT_CARD']; $cfgs[] = ['type' => 'CREDIT_CARD', 'config_options' => [['option' => 'INSTALLMENTS_LIMIT', 'value' => '1']]]; }
+    if (!empty($acct['debit'])) $methods[] = ['type' => 'DEBIT_CARD'];
+    if (!$methods) throw new RuntimeException('Cartão não habilitado');
+    $wa = (string) ($payer['whatsapp'] ?? '');
+    $phone = strlen($wa) === 11 ? ['phone' => ['country' => '+55', 'area' => substr($wa, 0, 2), 'number' => substr($wa, 2)]] : [];
+    $body = [
+        'reference_id' => $pay['reference'], 'expiration_date' => $exp,
+        'customer' => ['name' => mb_substr((string) $payer['name'], 0, 80), 'email' => $payer['email'], 'tax_id' => $taxId] + $phone,
+        'items' => [['reference_id' => 'plano-' . ($pay['plan_ref'] ?? 0), 'name' => mb_substr((string) $pay['plan_name'], 0, 100), 'quantity' => 1, 'unit_amount' => $amount]],
+        'payment_methods' => $methods,
+    ];
+    if ($cfgs) $body['payment_methods_configs'] = $cfgs;
+    $base = app_url();
+    if (str_starts_with($base, 'https://')) {
+        if (strlen($base . '/#/assinatura') <= 255) $body['redirect_url'] = $base . '/#/assinatura';
+        $hook = $base . '/api/pagbank/webhook?c=' . $pay['reference'];
+        if (strlen($hook) <= 100) { $body['notification_urls'] = [$hook]; $body['payment_notification_urls'] = [$hook]; }
+    }
+    [$st, $json, $txt] = pb_call('POST', '/checkouts', $body, $acct);
+    if ($st < 200 || $st >= 300 || !is_array($json) || empty($json['id'])) {
+        error_log('[meus-treinos] PagBank criar checkout: HTTP ' . $st . ' ' . mb_substr((string) $txt, 0, 400));
+        throw new RuntimeException('PagBank recusou o checkout');
+    }
+    $url = pb_link($json['links'] ?? [], 'PAY');
+    if (!$url || !str_starts_with($url, 'https://') && !str_starts_with($url, 'http://127.0.0.1')) throw new RuntimeException('PagBank não devolveu a página de pagamento');
+    return ['checkout_id' => mb_substr((string) $json['id'], 0, 64), 'url' => mb_substr($url, 0, 500), 'expires' => date('Y-m-d H:i:s', strtotime($exp))];
+}
+
+/** Pergunta ao PagBank o estado do pedido e atualiza o pagamento. Devolve o status final. */
+function pb_sync(array $pay, ?string $orderHint = null): string
+{
+    if ($pay['status'] === 'pago') return 'pago';
+    $cartao = ($pay['method'] ?? '') === 'cartao';
+    $orderId = !empty($pay['pb_order_id']) ? (string) $pay['pb_order_id'] : ($cartao ? $orderHint : null);
+    if (!$orderId && !$cartao) return $pay['status'];
     Db::run('UPDATE payments SET checked_at=? WHERE id=?', [now(), $pay['id']]);
     $acct = pb_account_for((string) $pay['kind'], $pay['company_id'] ? (int) $pay['company_id'] : null);
     if (!$acct) return $pay['status'];
-    try { [$st, $json] = pb_call('GET', '/orders/' . rawurlencode((string) $pay['pb_order_id']), null, $acct); } catch (Throwable $e) { return $pay['status']; }
+    if (!$orderId) { // cartão: o pedido nasce quando a pessoa paga; procura pela referência do checkout
+        try { [$ls, $lj] = pb_call('GET', '/orders?reference_id=' . rawurlencode((string) $pay['reference']), null, $acct); } catch (Throwable $e) { return $pay['status']; }
+        $first = $ls === 200 && is_array($lj) ? ($lj['orders'][0]['id'] ?? null) : null;
+        if (!is_string($first)) return $pay['status'];
+        $orderId = $first;
+    }
+    if (!preg_match('/^ORDE_[A-Za-z0-9-]{6,60}$/', $orderId)) return $pay['status'];
+    try { [$st, $json] = pb_call('GET', '/orders/' . rawurlencode($orderId), null, $acct); } catch (Throwable $e) { return $pay['status']; }
     if ($st !== 200 || !is_array($json)) return $pay['status'];
-    // o pedido precisa ser mesmo o nosso: mesma referência e mesmo valor
+    // o pedido precisa ser mesmo o nosso: mesma referência e mesmo valor (no cartão, o PagBank cria o pedido sozinho: vale o pedido da própria conta, uma vez só)
     $match = null;
     foreach (($json['charges'] ?? []) as $ch) if (is_array($ch) && (($ch['reference_id'] ?? '') === $pay['reference'] || ($json['reference_id'] ?? '') === $pay['reference'])) $match = $ch;
+    if (!$match && $cartao) foreach (($json['charges'] ?? []) as $ch) if (is_array($ch) && ($match === null || strtoupper((string) ($ch['status'] ?? '')) === 'PAID')) $match = $ch;
     if (!$match) return $pay['status'];
     $status = strtoupper((string) ($match['status'] ?? ''));
     $value = (int) ($match['amount']['value'] ?? -1);
-    if ($status === 'PAID' && $value === (int) $pay['amount_cents']) { pay_apply_paid((int) $pay['id']); return 'pago'; }
+    if ($status === 'PAID' && $value === (int) $pay['amount_cents']) {
+        if ($cartao && $orderId !== (string) ($pay['pb_order_id'] ?? '')) {
+            if (Db::val('SELECT 1 FROM payments WHERE pb_order_id=? AND id<>?', [$orderId, $pay['id']])) { error_log('[meus-treinos] PagBank: pedido já usado por outro pagamento (#' . $pay['id'] . ')'); return $pay['status']; }
+            Db::run('UPDATE payments SET pb_order_id=? WHERE id=?', [$orderId, $pay['id']]);
+        }
+        pay_apply_paid((int) $pay['id']); return 'pago';
+    }
     if ($status === 'PAID') { error_log('[meus-treinos] PagBank: valor pago diferente do cobrado no pagamento #' . $pay['id']); return $pay['status']; }
-    if (in_array($status, ['CANCELED', 'DECLINED'], true) && $pay['status'] === 'pendente') {
+    if (!$cartao && in_array($status, ['CANCELED', 'DECLINED'], true) && $pay['status'] === 'pendente') {
         $new = $status === 'DECLINED' ? 'falhou' : 'expirado';
         Db::run('UPDATE payments SET status=? WHERE id=? AND status=?', [$new, $pay['id'], 'pendente']);
         pay_release((int) $pay['id']);
@@ -196,7 +247,7 @@ function pay_public(array $p): array
 {
     return ['id' => (int) $p['id'], 'token' => $p['token'], 'status' => $p['status'], 'plan_name' => $p['plan_name'], 'months' => (int) $p['months'], 'list_cents' => (int) $p['list_cents'],
             'discount_cents' => (int) $p['discount_cents'], 'discount_note' => $p['discount_note'], 'amount_cents' => (int) $p['amount_cents'], 'pix_text' => $p['status'] === 'pendente' ? $p['pix_text'] : null,
-            'pix_qr' => $p['status'] === 'pendente' ? $p['pix_qr'] : null, 'expires_at' => iso($p['expires_at']), 'paid_at' => iso($p['paid_at']), 'method' => $p['method'], 'created_at' => iso($p['created_at'])];
+            'pix_qr' => $p['status'] === 'pendente' ? $p['pix_qr'] : null, 'pay_url' => $p['status'] === 'pendente' && ($p['method'] ?? '') === 'cartao' ? ($p['pay_url'] ?? null) : null, 'expires_at' => iso($p['expires_at']), 'paid_at' => iso($p['paid_at']), 'method' => $p['method'], 'created_at' => iso($p['created_at'])];
 }
 
 function pay_insert(array $payer, string $kind, array $plan, array $q, string $method, ?int $companyId, ?int $by): int
@@ -208,9 +259,10 @@ function pay_insert(array $payer, string $kind, array $plan, array $q, string $m
     return Db::id();
 }
 
-/** Gera a cobrança PIX de uma renovação. */
-function pay_create_pix(array $payer, string $kind, array $plan, array $q, string $taxId, ?int $by = null): array
+/** Gera a cobrança de uma renovação: PIX (padrão) ou cartão (checkout hospedado do PagBank). */
+function pay_create_pix(array $payer, string $kind, array $plan, array $q, string $taxId, ?int $by = null, string $method = 'pix'): array
 {
+    $card = $method === 'cartao';
     $cid = $payer['company_id'] ? (int) $payer['company_id'] : null;
     $acct = pb_account_for($kind, $cid);
     if (!$acct) fail($kind === 'aluno' ? 'A sua academia ainda não ativou o pagamento online. Fale com ela para pagar de outra forma.' : 'O pagamento online ainda não foi ativado. Fale com o gestor.', 503);
@@ -219,19 +271,24 @@ function pay_create_pix(array $payer, string $kind, array $plan, array $q, strin
         Db::run("UPDATE payments SET status='cancelado' WHERE id=? AND status='pendente'", [$old['id']]);
         pay_release((int) $old['id']);
     }
-    $id = pay_insert($payer, $kind, $plan, $q, 'pix', $cid, $by);
+    if ($card && empty($acct['card']) && empty($acct['debit'])) fail('O pagamento com cartão não está ativo. Pague com PIX ou fale com a sua academia.', 409);
+    $id = pay_insert($payer, $kind, $plan, $q, $card ? 'cartao' : 'pix', $cid, $by);
     if ($q['credit_ids']) {
         $in = implode(',', array_fill(0, count($q['credit_ids']), '?'));
         Db::run("UPDATE referrals SET credit_state='reservado', credit_payment_id=? WHERE credit_state='livre' AND id IN ($in)", array_merge([$id], $q['credit_ids']));
     }
     $pay = Db::one('SELECT * FROM payments WHERE id=?', [$id]);
     try {
-        $r = pb_create_pix($pay, $payer, $taxId, $acct);
+        $r = $card ? pb_create_checkout($pay, $payer, $taxId, $acct) : pb_create_pix($pay, $payer, $taxId, $acct);
     } catch (Throwable $e) {
         error_log('[meus-treinos] cobrança #' . $id . ': ' . $e->getMessage());
         Db::run("UPDATE payments SET status='falhou' WHERE id=?", [$id]);
         pay_release($id);
-        fail('Não consegui gerar o PIX agora. Tente de novo em instantes.', 502);
+        fail($card ? 'Não consegui abrir o pagamento com cartão agora. Tente de novo em instantes.' : 'Não consegui gerar o PIX agora. Tente de novo em instantes.', 502);
+    }
+    if ($card) {
+        Db::run('UPDATE payments SET pb_checkout_id=?, pay_url=?, expires_at=? WHERE id=?', [$r['checkout_id'], $r['url'], $r['expires'], $id]);
+        return pay_public(Db::one('SELECT * FROM payments WHERE id=?', [$id]));
     }
     Db::run('UPDATE payments SET pb_order_id=?, pb_charge_id=?, pix_text=?, pix_qr=?, expires_at=? WHERE id=?', [$r['order_id'], $r['charge_id'], $r['text'], $r['qr'], $r['expires'], $id]);
     return pay_public(Db::one('SELECT * FROM payments WHERE id=?', [$id]));
@@ -247,12 +304,13 @@ function plan_options_for(array $payer): array
 function h_pay_options(array $p, array $u): void
 {
     if ($u['role'] === 'aluno') {
-        j(['kind' => 'aluno', 'enabled' => pb_account_for('aluno', (int) $u['company_id']) !== null, 'receiver' => company_kind((int) $u['company_id']) === 'direta' ? 'plataforma' : 'empresa', 'access_until' => $u['access_until'], 'plans' => plan_options_for($u)]);
+        $acct = pb_account_for('aluno', (int) $u['company_id']);
+        j(['kind' => 'aluno', 'enabled' => $acct !== null, 'card' => $acct !== null && (!empty($acct['card']) || !empty($acct['debit'])), 'receiver' => company_kind((int) $u['company_id']) === 'direta' ? 'plataforma' : 'empresa', 'access_until' => $u['access_until'], 'plans' => plan_options_for($u)]);
     }
     if ($u['role'] === 'admin') {
         $c = Db::one('SELECT c.access_until, p.id plan_id, p.name plan_name, p.price_cents FROM companies c LEFT JOIN plans p ON p.id=c.plan_id WHERE c.id=?', [$u['company_id']]);
         $pq = platform_quote((int) $u['company_id']);
-        j(['kind' => 'empresa', 'quote' => $pq ? array_diff_key($pq, ['plan' => 1, 'refs_json' => 1]) : null, 'partner' => partner_info((int) $u['company_id']), 'enabled' => pb_cfg() !== null, 'access_until' => $c['access_until'], 'plan' => $c['plan_id'] ? ['id' => (int) $c['plan_id'], 'name' => $c['plan_name'], 'price_cents' => (int) $c['price_cents']] : null]);
+        j(['kind' => 'empresa', 'quote' => $pq ? array_diff_key($pq, ['plan' => 1, 'refs_json' => 1]) : null, 'partner' => partner_info((int) $u['company_id']), 'enabled' => pb_cfg() !== null, 'card' => (($pc = pb_cfg()) !== null) && (!empty($pc['card']) || !empty($pc['debit'])), 'access_until' => $c['access_until'], 'plan' => $c['plan_id'] ? ['id' => (int) $c['plan_id'], 'name' => $c['plan_name'], 'price_cents' => (int) $c['price_cents']] : null]);
     }
     fail('Você não tem permissão para isso.', 403);
 }
@@ -265,7 +323,7 @@ function h_pay_create(array $p, array $u): void
         $plan = Db::one('SELECT * FROM company_plans WHERE id=? AND company_id=? AND active=1', [(int) ($in['plan_id'] ?? 0), $u['company_id']]);
         if (!$plan) fail('Escolha um plano.');
         $row = Db::one(USER_SELECT . 'WHERE u.id=?', [$u['id']]);
-        j(['payment' => pay_create_pix($row, 'aluno', $plan, pay_quote($row, $plan), $tax)], 201);
+        j(['payment' => pay_create_pix($row, 'aluno', $plan, pay_quote($row, $plan), $tax, null, ($in['method'] ?? '') === 'cartao' ? 'cartao' : 'pix')], 201);
     }
     if ($u['role'] === 'admin') {
         $pl = Db::one('SELECT p.* FROM companies c JOIN plans p ON p.id=c.plan_id WHERE c.id=?', [$u['company_id']]);
@@ -274,7 +332,7 @@ function h_pay_create(array $p, array $u): void
         $plan = ['id' => (int) $pl['id'], 'name' => 'Plataforma · ' . $pl['name'] . ' · 1 mês', 'months' => 1, 'price_cents' => (int) $pl['price_cents']];
         $pq = platform_quote((int) $u['company_id']);
         $q = ['list_cents' => $pq['list_cents'], 'discount_cents' => $pq['discount_cents'], 'amount_cents' => $pq['amount_cents'], 'discount_note' => $pq['discount_note'], 'referral_id' => null, 'credit_ids' => [], 'commission_user_id' => null, 'commission_cents' => 0, 'refs_json' => $pq['refs_json']];
-        j(['payment' => pay_create_pix($row, 'empresa', $plan, $q, $tax)], 201);
+        j(['payment' => pay_create_pix($row, 'empresa', $plan, $q, $tax, null, ($in['method'] ?? '') === 'cartao' ? 'cartao' : 'pix')], 201);
     }
     fail('Você não tem permissão para isso.', 403);
 }
@@ -292,7 +350,7 @@ function h_pay_status(array $p): void
     if (!preg_match('/^[a-f0-9]{32}$/', $t)) fail('Cobrança não encontrada.', 404);
     $pay = Db::one('SELECT * FROM payments WHERE token=?', [$t]);
     if (!$pay) fail('Cobrança não encontrada.', 404);
-    if ($pay['status'] === 'pendente' && $pay['pb_order_id'] && (!$pay['checked_at'] || strtotime($pay['checked_at']) < time() - 3)) {
+    if ($pay['status'] === 'pendente' && ($pay['pb_order_id'] || ($pay['method'] ?? '') === 'cartao') && (!$pay['checked_at'] || strtotime($pay['checked_at']) < time() - 3)) {
         $new = pb_sync($pay);
         $pay = Db::one('SELECT * FROM payments WHERE id=?', [$pay['id']]);
     }
@@ -313,10 +371,10 @@ function h_pay_renew(array $p): void
     if (!$row || !$ok) fail('E-mail ou senha incorretos.', 401);
     if (!can_self_renew($row)) fail('Não é possível renovar por aqui. Fale com o seu personal ou com a sua academia.', 403);
     unset($row['password_hash']);
-    if (empty($in['plan_id'])) j(['enabled' => pb_account_for('aluno', $row['company_id'] ? (int) $row['company_id'] : null) !== null, 'name' => $row['name'], 'plans' => plan_options_for($row)]);
+    if (empty($in['plan_id'])) { $ra = pb_account_for('aluno', $row['company_id'] ? (int) $row['company_id'] : null); j(['enabled' => $ra !== null, 'card' => $ra !== null && (!empty($ra['card']) || !empty($ra['debit'])), 'name' => $row['name'], 'plans' => plan_options_for($row)]); }
     $plan = Db::one('SELECT * FROM company_plans WHERE id=? AND company_id=? AND active=1', [(int) $in['plan_id'], $row['company_id']]);
     if (!$plan) fail('Escolha um plano.');
-    j(['payment' => pay_create_pix($row, 'aluno', $plan, pay_quote($row, $plan), valid_tax_id($in['tax_id'] ?? ''))], 201);
+    j(['payment' => pay_create_pix($row, 'aluno', $plan, pay_quote($row, $plan), valid_tax_id($in['tax_id'] ?? ''), null, ($in['method'] ?? '') === 'cartao' ? 'cartao' : 'pix')], 201);
 }
 
 /** Aviso do PagBank. Não confiamos no conteúdo: só usamos para saber QUAL cobrança conferir e então perguntamos ao PagBank. */
@@ -328,6 +386,12 @@ function h_pagbank_webhook(array $p): void
     if (is_array($d)) {
         foreach (['id', 'reference_id'] as $k) if (is_string($d[$k] ?? null)) $ids[] = $d[$k];
         foreach (($d['charges'] ?? []) as $ch) if (is_array($ch) && is_string($ch['reference_id'] ?? null)) $ids[] = $ch['reference_id'];
+    }
+    // cartão: o endereço do aviso traz a referência da NOSSA cobrança (?c=); o pedido que o PagBank cria só vale depois de conferido na conta (pb_sync)
+    $hint = is_array($d) && is_string($d['id'] ?? null) && preg_match('/^ORDE_[A-Za-z0-9-]{6,60}$/', $d['id']) ? $d['id'] : null;
+    $cref = is_string($_GET['c'] ?? null) && preg_match('/^mt[a-f0-9]{20}$/', $_GET['c']) ? $_GET['c'] : null;
+    if ($cref && ($pay = Db::one("SELECT * FROM payments WHERE reference=? AND method='cartao' AND status<>'pago'", [$cref]))) {
+        try { pb_sync($pay, $hint); } catch (Throwable $e) { error_log('[meus-treinos] webhook cartão: ' . $e->getMessage()); }
     }
     foreach (array_slice(array_unique($ids), 0, 5) as $id) {
         if (!preg_match('/^[A-Za-z0-9_-]{6,64}$/', $id)) continue;

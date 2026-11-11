@@ -116,6 +116,7 @@ $routes = [
     ['GET',    'pagbank/company',            'h_pbco_get',             true],
     ['PUT',    'pagbank/company',            'h_pbco_put',             true],
     ['DELETE', 'pagbank/company',            'h_pbco_delete',          true],
+    ['PUT',    'pagbank/company/methods',    'h_pbco_methods',         true],
     ['POST',   'pagbank/company/test',       'h_pbco_test',            true],
 
     ['GET',    'routines',                   'h_routines',             true],

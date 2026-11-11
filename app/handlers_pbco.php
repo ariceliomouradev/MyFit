@@ -42,13 +42,13 @@ function secret_decrypt(string $enc): ?string
 /** Conta PagBank da empresa (ou null se não conectou / não foi possível decifrar). */
 function pb_company_account(int $cid): ?array
 {
-    $r = Db::one('SELECT pb_token_enc, pb_env FROM companies WHERE id=?', [$cid]);
+    $r = Db::one('SELECT pb_token_enc, pb_env, pb_card, pb_debit FROM companies WHERE id=?', [$cid]);
     if (!$r || empty($r['pb_token_enc'])) return null;
     $token = secret_decrypt((string) $r['pb_token_enc']);
     if ($token === null || $token === '') return null;
     $env = $r['pb_env'] === 'production' ? 'production' : 'sandbox';
     $over = cfg('pagbank'); $base = is_array($over) && !empty($over['base_url']) ? (string) $over['base_url'] : ($env === 'production' ? 'https://api.pagseguro.com' : 'https://sandbox.api.pagseguro.com');
-    return ['token' => $token, 'env' => $env, 'base' => rtrim($base, '/'), 'owner' => 'empresa'];
+    return ['token' => $token, 'env' => $env, 'base' => rtrim($base, '/'), 'owner' => 'empresa', 'card' => !empty($r['pb_card']), 'debit' => !empty($r['pb_debit'])];
 }
 
 /**
@@ -71,12 +71,12 @@ function pbco_company(array $u): int
 
 function pbco_status(int $cid): array
 {
-    $c = Db::one('SELECT kind, pb_token_enc, pb_env, pb_hint, pb_connected_at FROM companies WHERE id=?', [$cid]);
+    $c = Db::one('SELECT kind, pb_token_enc, pb_env, pb_hint, pb_connected_at, pb_card, pb_debit FROM companies WHERE id=?', [$cid]);
     $base = app_url();
     $direct = ($c['kind'] ?? 'empresa') === 'direta';
     $connected = !$direct && !empty($c['pb_token_enc']) && pb_company_account($cid) !== null;
     return ['connected' => $connected, 'env' => $c['pb_env'] ?? 'sandbox', 'hint' => $connected ? $c['pb_hint'] : null, 'connected_at' => $connected ? iso($c['pb_connected_at']) : null,
-            'receiver' => $direct ? 'plataforma' : 'empresa', 'broken' => !$direct && !empty($c['pb_token_enc']) && !$connected,
+            'card' => !empty($c['pb_card']), 'debit' => !empty($c['pb_debit']), 'receiver' => $direct ? 'plataforma' : 'empresa', 'broken' => !$direct && !empty($c['pb_token_enc']) && !$connected,
             'webhook_url' => $base ? $base . '/api/pagbank/webhook' : null, 'https' => str_starts_with($base, 'https://')];
 }
 
@@ -107,6 +107,18 @@ function h_pbco_put(array $p, array $u): void
     try { $enc = secret_encrypt($token); } catch (Throwable $e) { error_log('[meus-treinos] cifra do token: ' . $e->getMessage()); fail('Não consegui guardar o token com segurança. Avise o suporte.', 500); }
     Db::run('UPDATE companies SET pb_token_enc=?, pb_env=?, pb_hint=?, pb_connected_at=? WHERE id=?', [$enc, $env, substr($token, -4), now(), $cid]);
     audit($u, (int) $u['id'], 'pagbank_conectado', $env === 'production' ? 'produção' : 'testes');
+    j(['pagbank' => pbco_status($cid)]);
+}
+
+/** O administrador liga/desliga cartão de crédito e débito (o débito precisa estar liberado na conta PagBank dele). */
+function h_pbco_methods(array $p, array $u): void
+{
+    require_role($u, 'admin');
+    $cid = (int) $u['company_id'];
+    if (company_kind($cid) === 'direta') fail('Esta empresa recebe pela plataforma.', 409);
+    $in = body();
+    Db::run('UPDATE companies SET pb_card=?, pb_debit=? WHERE id=?', [!empty($in['card']) ? 1 : 0, !empty($in['debit']) ? 1 : 0, $cid]);
+    audit($u, (int) $u['id'], 'pagbank_cartao', (!empty($in['card']) ? 'crédito' : '') . (!empty($in['card']) && !empty($in['debit']) ? ' + ' : '') . (!empty($in['debit']) ? 'débito' : '') ?: 'desligado');
     j(['pagbank' => pbco_status($cid)]);
 }
 

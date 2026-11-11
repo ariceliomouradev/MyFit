@@ -137,6 +137,7 @@ route(/^#\/redefinir\/([a-f0-9]{64})$/, token => authViewV3('reset', token), { p
 /* =====================================================================
  *  Pagamento PIX (PagBank): escolher plano, gerar o PIX, acompanhar até confirmar
  * ===================================================================== */
+const cardBtn = on => on ? html`<button class="btn block" type="button" style="margin-top:8px" data-act="pay-card">Pagar com cartão</button>` : '';
 const quoteTxt = q => q.discount_cents > 0
   ? html`<s class="muted">${money(q.list_cents)}</s> <b>${money(q.amount_cents)}</b><span class="small" style="display:block;color:var(--ok,#3ecf8e)">Desconto de ${money(q.discount_cents)} · ${q.discount_note}</span>`
   : html`<b>${money(q.amount_cents)}</b>`;
@@ -163,11 +164,15 @@ function showPix(pay, { onPaid } = {}) {
   timer = setInterval(tick, 4000);
   return m;
 }
-const pixHtml = pay => html`<div class="row between" style="margin-bottom:6px"><h2>Pagar com PIX</h2><button class="icon-btn" data-close aria-label="Fechar">${raw(ICON.x)}</button></div><div data-pix>${raw(pixInner(pay))}</div>`;
+const pixHtml = pay => html`<div class="row between" style="margin-bottom:6px"><h2>${pay.method === 'cartao' ? 'Pagar com cartão' : 'Pagar com PIX'}</h2><button class="icon-btn" data-close aria-label="Fechar">${raw(ICON.x)}</button></div><div data-pix>${raw(pixInner(pay))}</div>`;
 function pixInner(p) {
   if (p.status === 'pago') return html`<div class="center" style="padding:10px 0"><div class="okmark">${raw(ICON.check)}</div><h3>Pagamento confirmado!</h3><p class="muted">${p.plan_name} · ${money(p.amount_cents)}. Seu acesso foi renovado.</p>
     <button class="btn primary block" data-act="pay-done">Continuar</button></div>`;
-  if (p.status !== 'pendente') return html`<div class="center" style="padding:10px 0"><h3>${p.status === 'expirado' || p.status === 'cancelado' ? 'Este PIX venceu' : 'Não foi possível concluir'}</h3><p class="muted">Gere um novo PIX para tentar de novo.</p><button class="btn primary block" data-close>Fechar</button></div>`;
+  if (p.status !== 'pendente') return html`<div class="center" style="padding:10px 0"><h3>${p.status === 'expirado' || p.status === 'cancelado' ? (p.method === 'cartao' ? 'Esta cobrança venceu' : 'Este PIX venceu') : 'Não foi possível concluir'}</h3><p class="muted">${p.method === 'cartao' ? 'Volte e escolha o pagamento de novo.' : 'Gere um novo PIX para tentar de novo.'}</p><button class="btn primary block" data-close>Fechar</button></div>`;
+  if (p.method === 'cartao') return html`<p class="muted" style="margin:0 0 8px">${p.plan_name} · <b>${money(p.amount_cents)}</b>${p.discount_cents ? ` (com desconto de ${money(p.discount_cents)})` : ''}</p>
+    <p class="small muted" style="margin:6px 0">Você vai digitar o cartão na página segura do PagBank. O app não vê nem guarda os dados do cartão.</p>
+    <a class="btn primary block" href="${p.pay_url}" target="_blank" rel="noopener noreferrer">Abrir pagamento seguro do PagBank</a>
+    <p class="small muted center" style="margin:10px 0 0">Vale por <b data-left>${p.expires_at ? mmss(Math.max(0, Math.round((new Date(p.expires_at) - Date.now()) / 1000))) : '60:00'}</b> · depois de pagar, volte para cá: esta tela confirma sozinha.</p>`;
   return html`<p class="muted" style="margin:0 0 8px">${p.plan_name} · <b>${money(p.amount_cents)}</b>${p.discount_cents ? ` (com desconto de ${money(p.discount_cents)})` : ''}</p>
     ${p.pix_qr ? raw(html`<div class="qrbox"><img src="${p.pix_qr}" alt="QR Code do PIX" width="220" height="220"></div>`) : ''}
     <p class="small muted center" style="margin:6px 0">Abra o app do seu banco, escolha PIX e leia o QR Code, ou use o copia e cola:</p>
@@ -183,7 +188,7 @@ async function renewOpen() {
   openModal(html`<div class="row between" style="margin-bottom:6px"><h2>Renovar assinatura</h2><button class="icon-btn" data-close aria-label="Fechar">${raw(ICON.x)}</button></div>
     <p class="muted" style="margin-top:0">Olá, ${r.name}. Escolha o plano e pague com PIX. O acesso volta assim que o pagamento for confirmado.</p>
     ${r.enabled ? '' : raw('<div class="err">O pagamento online ainda não está ativo na sua academia. Fale com ela para renovar.</div>')}
-    <div class="scroll"><form data-form="pay-renew">${raw(planCards(r.plans))}${raw(taxField())}<button class="btn primary block" type="submit" ${r.enabled && r.plans.length ? '' : raw('disabled')}>Gerar PIX</button></form></div>`);
+    <div class="scroll"><form data-form="pay-renew">${raw(planCards(r.plans))}${raw(taxField())}<button class="btn primary block" type="submit" ${r.enabled && r.plans.length ? '' : raw('disabled')}>Gerar PIX</button>${r.enabled && r.plans.length ? raw(cardBtn(r.card)) : ''}</form></div>`);
 }
 
 /** Cartão "Indique outra empresa": código, regra e quem a empresa já indicou (o desconto sai da plataforma, com teto de margem). */
@@ -202,12 +207,12 @@ route(/^#\/assinatura$/, async () => {
   if (o.kind === 'empresa') return html`<div class="page-title"><div><div class="eyebrow">Plataforma</div><h1>Mensalidade da empresa</h1></div></div>
     <div class="card"><p class="muted" style="margin:0 0 8px">Acesso da empresa até <b>${until}</b>.</p>
       ${o.plan ? raw(html`<h3>${o.plan.name} · ${o.quote && o.quote.discount_cents ? '' : money(o.plan.price_cents) + ' por mês'}</h3>${o.quote && o.quote.discount_cents ? raw(html`<p style="margin:0"><s class="muted">${money(o.quote.list_cents)}</s> <b style="font-size:1.3rem">${money(o.quote.amount_cents)}</b> por mês</p><p class="small" style="color:var(--ok);margin:4px 0 0">Desconto de ${money(o.quote.discount_cents)} · ${o.quote.discount_note}</p>`) : ''}`) : raw('<p>Sua empresa ainda não tem um plano definido. Fale com o gestor.</p>')}
-      ${o.enabled && o.plan ? raw(html`<form data-form="pay-create" style="margin-top:12px">${raw(taxField())}<button class="btn primary block" type="submit">Pagar 1 mês com PIX</button></form>`) : raw('<p class="hint">O pagamento online ainda não está ativo.</p>')}</div>
+      ${o.enabled && o.plan ? raw(html`<form data-form="pay-create" style="margin-top:12px">${raw(taxField())}<button class="btn primary block" type="submit">Pagar 1 mês com PIX</button>${raw(cardBtn(o.card))}</form>`) : raw('<p class="hint">O pagamento online ainda não está ativo.</p>')}</div>
     ${o.partner ? raw(partnerCard(o.partner)) : ''}`;
   return html`<div class="page-title"><div><div class="eyebrow">Assinatura</div><h1>Renovar meu acesso</h1></div></div>
     <div class="card"><p class="muted" style="margin:0">Seu acesso vale até <b>${until}</b>. Ao pagar, o novo período soma ao que ainda resta.</p></div>
     ${o.enabled ? '' : raw('<div class="card note">O pagamento online ainda não está ativo. Fale com a sua academia para renovar.</div>')}
-    <form data-form="pay-create">${raw(planCards(o.plans))}${o.plans.length && o.enabled ? raw(html`${raw(taxField())}<button class="btn primary block" type="submit">Gerar PIX</button>`) : ''}</form>`;
+    <form data-form="pay-create">${raw(planCards(o.plans))}${o.plans.length && o.enabled ? raw(html`${raw(taxField())}<button class="btn primary block" type="submit">Gerar PIX</button>${raw(cardBtn(o.card))}`) : ''}</form>`;
 });
 
 /* =====================================================================
@@ -327,6 +332,10 @@ function pbHtml(p) {
   return html`<div class="card"><h3>Conta PagBank da empresa</h3>${raw(state)}
       <p class="hint">O dinheiro dos alunos (PIX) cai <b>direto na conta PagBank da sua empresa</b>. A plataforma só cobra a mensalidade, na conta dela. O token é guardado cifrado e nunca aparece de novo na tela.</p>
       ${raw(form)}
+      ${mine && p.connected ? raw(html`<form data-form="pb-methods" class="formv" style="margin-top:12px"><h4 style="margin:0 0 6px">Formas de pagamento dos alunos</h4><p class="small muted" style="margin:0 0 8px">O PIX está sempre ligado. O aluno digita o cartão na página do PagBank, e o dinheiro cai na sua conta.</p>
+        <label class="row" style="gap:8px;margin-bottom:6px"><input type="checkbox" name="card" ${p.card ? raw('checked') : ''}> Cartão de crédito (à vista)</label>
+        <label class="row" style="gap:8px;margin-bottom:8px"><input type="checkbox" name="debit" ${p.debit ? raw('checked') : ''}> Cartão de débito <span class="small muted">(precisa estar liberado na sua conta PagBank)</span></label>
+        <button class="btn block" type="submit">Salvar formas de pagamento</button></form>`) : ''}
       ${mine && p.connected ? raw(html`<div class="stack" style="margin-top:8px"><button class="btn block" data-act="pb-co-test">Testar conexão</button><button class="btn danger block" data-act="pb-co-del">Desconectar</button></div>`) : ''}</div>
     <div class="card"><h3>Como conectar</h3><ol class="how"><li>No PagBank, abra a conta da empresa e gere um <b>token</b>: em produção, <b>Vendas › Integrações › Gerar token</b>; para testar, no portal de desenvolvedores (portaldev.pagbank.com.br), aba <b>Tokens</b>.</li><li>Escolha o ambiente (testes ou produção) e cole o token acima. O app confere o token com o PagBank antes de guardar.</li><li>Pronto: o aluno que tocar em "Pagar com PIX" gera a cobrança na sua conta. Para testar sem dinheiro, use primeiro o ambiente de testes.</li></ol>
       ${p.https ? '' : raw('<div class="infobox"><span>O aviso automático do PagBank só funciona com endereço seguro (https). Sem ele, o app confere o pagamento quando o aluno abre a tela.</span></div>')}</div>`;
@@ -500,6 +509,7 @@ Object.assign(acts, {
     el.innerHTML = show ? ICON.eyeoff : ICON.eye; el.setAttribute('aria-pressed', String(show)); el.setAttribute('aria-label', show ? 'Ocultar senha' : 'Mostrar senha');
   },
   'copy-text': el => copyText(el.dataset.v, 'Código copiado!'),
+  'pay-card': el => { const f = el.closest('form'); if (!f) return; f.dataset.method = 'cartao'; if (f.checkValidity()) f.requestSubmit(); else { delete f.dataset.method; f.reportValidity(); } },
   'pix-copy': () => copyText($('#pix-text')?.value || '', 'Código PIX copiado! Cole no app do seu banco.'),
   'pay-done': () => { closeModal(); if (S.user) render(); else { authModeVal = 'login'; S.renew = null; renderAuth(); toast('Pronto! Agora é só entrar.'); } },
   'renew-open': guard(() => renewOpen()),
@@ -584,8 +594,12 @@ const priceBody = d => { const c = toCents(d.price); if (!Number.isFinite(c) || 
 Object.assign(forms, {
   forgot: async d => { const r = await api('POST', 'password/forgot', { email: d.email }); S.forgotMsg = r.message; S.forgotEmail = d.email; authMode('forgot-sent'); },
   reset: async (d, f) => { await api('POST', 'password/reset', { token: f.dataset.token, password: d.password }); authModeVal = 'login'; location.hash = '#/entrar'; renderAuth(); toast('Senha criada. Agora é só entrar.'); },
-  'pay-create': async d => { const r = await api('POST', 'pay/create', { plan_id: d.plan_id ? +d.plan_id : undefined, tax_id: d.tax_id }); showPix(r.payment, { onPaid: () => { if (S.user) S.user.access_until = null; } }); },
-  'pay-renew': async d => { const r = await api('POST', 'pay/renew', { ...S.renew, plan_id: +d.plan_id, tax_id: d.tax_id }); showPix(r.payment); },
+  'pay-create': async (d, f) => { const method = f?.dataset.method === 'cartao' ? 'cartao' : 'pix'; if (f) delete f.dataset.method; const r = await api('POST', 'pay/create', { plan_id: d.plan_id ? +d.plan_id : undefined, tax_id: d.tax_id, method }); showPix(r.payment, { onPaid: () => { if (S.user) S.user.access_until = null; } }); },
+  'pay-renew': async (d, f) => { const method = f?.dataset.method === 'cartao' ? 'cartao' : 'pix'; if (f) delete f.dataset.method; const r = await api('POST', 'pay/renew', { ...S.renew, plan_id: +d.plan_id, tax_id: d.tax_id, method }); showPix(r.payment); },
+  'pb-methods': async (d) => {
+    const r = await api('PUT', 'pagbank/company/methods', { card: !!d.card, debit: !!d.debit });
+    FIN.pb = r.pagbank; toast('Formas de pagamento salvas.'); $('#pb-box').innerHTML = pbHtml(FIN.pb);
+  },
   cplan: async (d, f) => {
     const body = { name: d.name, months: +d.months, price_cents: priceBody(d), active: f.dataset.id ? !!d.active : true, company_id: FIN.cid || undefined };
     if (d.cost !== undefined) { body.cost_cents = Math.max(0, toCents(d.cost || '0')) || 0; body.min_margin_pct = parseFloat(String(d.min_margin_pct || '40').replace(',', '.')); }
