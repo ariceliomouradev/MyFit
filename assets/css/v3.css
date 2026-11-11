@@ -92,3 +92,13 @@ textarea.mono{font-size:.75rem;word-break:break-all;resize:none}
 .pgi{width:64px;min-width:0;padding:6px 8px;text-align:center;margin:0}
 .pg-go{display:inline-flex;align-items:center;gap:6px;margin-left:4px}
 .pwgen{margin:6px 0 12px}
+
+/* celular: valores em moeda nunca quebram linha, textos longos encolhem e os campos de regras ficam um por linha */
+.list.sum li>span{flex:1 1 0;min-width:0}
+.list.sum li>b{flex:0 1 auto;max-width:62%;overflow-wrap:break-word;word-break:normal;text-align:right}
+.list li>b.mono,.list li>.mono{flex:none;white-space:nowrap}
+.stat b,.bigmoney,.pc-price{white-space:nowrap}
+.page-title{flex-wrap:wrap}
+@media (max-width:520px){.grid2.f1{grid-template-columns:1fr}.grid2.f1>.f{margin-bottom:10px}}
+.btn.block{white-space:normal;line-height:1.25}.btn.block svg{flex:none}
+.btn.sm{white-space:nowrap}

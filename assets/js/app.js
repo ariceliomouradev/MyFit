@@ -189,9 +189,6 @@ function layout(content, hash, focus) {
         ${role === 'aluno' ? raw(html`<a class="icon-btn" href="#/config" aria-label="Configurações e perfil">${raw(ICON.gear)}</a>`) : ''}
       </header>
       <main>${raw(content)}</main>
-      <footer class="credit">
-        <a href="https://ariceliomoura.com.br/" target="_blank" rel="noopener">Desenvolvido por <img src="assets/img/logo.svg" alt="Aricelio Moura"></a>
-      </footer>
     </div>
     <nav class="nav" aria-label="Principal"><div class="nav-in">${raw(tabs)}</div></nav>`;
 }
@@ -575,7 +572,7 @@ route(/^#\/plano$/, async () => {
       ${a?.priority?.length ? raw(html`<p class="small" style="margin:6px 0 0">Mais atenção para: <b>${a.priority.map(g => MUSCLE[g] || g).join(', ')}</b>.</p>`) : ''}
       ${cov ? raw(html`<details style="margin-top:8px"><summary class="small"><b>Séries por músculo na semana</b></summary><div class="bars" style="margin-top:6px">${cov.map(c => raw(html`<div class="b"><span>${MUSCLE[c.group]}</span><span class="tr"><i style="width:${Math.min(100, c.sets / c.max * 100)}%"></i></span><b class="mono right">${c.sets}</b></div>`))}</div><p class="hint">O ideal por semana fica entre ${cov[0].min} e ${cov[0].max} séries por músculo grande.</p></details>`) : ''}</div>`) : ''}
     ${S.profile ? raw(html`<div class="card"><div class="row between wrap"><div><div class="t" style="font-weight:700">${GOAL[S.profile.goal]}</div><div class="small muted">${ENV[S.profile.environment]} · ${S.profile.days_per_week} dias · ${LVL_SHORT[S.profile.level]}</div></div>
-      <div class="row"><button class="btn sm" data-act="plan-adjust">Ajustar</button><button class="btn sm ghost" data-act="wz-restart">Refazer perguntas</button></div></div></div>`)
+      <div class="row wrap"><button class="btn sm" data-act="plan-adjust">Ajustar</button><button class="btn sm ghost" data-act="wz-restart">Refazer perguntas</button></div></div></div>`)
       : raw(html`<div class="card hl center"><h3>Monte seu plano automático</h3><p class="muted small">Informe seus dados e medidas e escolha o objetivo.</p><a class="btn primary" href="#/comecar">Começar</a></div>`)}
     ${routines.length ? raw(html`<div class="day-h">Sua semana</div><div class="card days">${days.map(d => raw(dayRow(d)))}</div>`) : ''}
     ${loose.length ? raw(html`<div class="day-h">Sem dia fixo</div><div class="card days">${loose.map(r => raw(html`<a class="dayrow" href="#/rotina/${r.id}"><b>·</b><span class="grow"><span class="t">${r.name}</span><span class="s">${r.exercises.length} exercícios</span></span><span class="chev">›</span></a>`))}</div>`) : ''}
@@ -652,6 +649,8 @@ document.addEventListener('change', e => {
   PGH[i.closest('[data-pager]').dataset.pager]?.(Math.round(+i.value) || 1);
 });
 document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches?.('[data-pgi]')) { e.preventDefault(); e.target.dispatchEvent(new Event('change', { bubbles: true })); } });
+/** Crédito do desenvolvedor: aparece só na tela Mais/Configurações (antes ficava no rodapé de todas as telas). */
+const devCredit = () => html`<footer class="credit"><a href="https://ariceliomoura.com.br/" target="_blank" rel="noopener">Desenvolvido por <img src="assets/img/logo.svg" alt="Aricelio Moura"></a></footer>`;
 const backLink = (href = '#/config', label = 'Mais') => html`<a class="back" href="${href}" aria-label="Voltar para ${label}">‹ ${label}</a>`;
 const toTop = sel => { const el = $(sel); if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' }); };
 
@@ -781,15 +780,16 @@ const configAluno = () => html`
       <p class="small muted">E-mail: ${S.user.email}${S.user.company_name ? ' · ' + S.user.company_name : ''}${S.user.access_until ? ' · acesso até ' + new Date(S.user.access_until + 'T12:00').toLocaleDateString('pt-BR') : ''}</p>
       <button class="btn primary block" type="submit">Salvar perfil</button></form></div>
   ${S.profile ? raw(html`<div class="card"><h3>Meu plano</h3><p class="small muted">${GOAL[S.profile.goal]} · ${ENV[S.profile.environment]} · ${S.profile.days_per_week} dias por semana</p>
-    <div class="grid2"><button class="btn" data-act="plan-adjust">Ajustar plano</button><button class="btn" data-act="wz-restart">Refazer perguntas</button></div></div>`) : raw(html`<div class="card"><h3>Meu plano</h3><a class="btn primary block" href="#/comecar">Montar meu plano</a></div>`)}
+    <div class="grid2 f1"><button class="btn" data-act="plan-adjust">Ajustar plano</button><button class="btn" data-act="wz-restart">Refazer perguntas</button></div></div>`) : raw(html`<div class="card"><h3>Meu plano</h3><a class="btn primary block" href="#/comecar">Montar meu plano</a></div>`)}
   <div class="card"><h3>Seus dados</h3><p class="small muted">Exporte tudo quando quiser. É seu.</p>
-    <div class="grid2"><a class="btn" href="api/export.csv" download>Planilha (CSV)</a><a class="btn" href="api/export.json" download>Backup (JSON)</a></div></div>
+    <div class="grid2 f1"><a class="btn" href="api/export.csv" download>Planilha (CSV)</a><a class="btn" href="api/export.json" download>Backup (JSON)</a></div></div>
   <div class="card"><h3>Trocar senha</h3>
     <form data-form="password" style="margin-top:10px">${raw(pwField('current', 'Senha atual'))}
       ${raw(pwField('new', 'Nova senha', { auto: 'new-password', rules: true }))}
       <button class="btn block" type="submit">Trocar senha</button></form></div>
   <div class="card"><div class="stack"><button class="btn block" data-act="logout">Sair</button><button class="btn danger block" data-act="delete-account">Excluir minha conta</button></div></div>
-  <p class="center small muted">Meus Treinos · v${S.version || ''}</p>`;
+  <p class="center small muted">Meus Treinos · v${S.version || ''}</p>
+  ${raw(devCredit())}`;
 
 /* =====================================================================
  *  Eventos (delegação)

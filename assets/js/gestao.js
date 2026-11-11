@@ -44,7 +44,7 @@ route(/^#\/gestor$/, async () => {
   const { companies } = await api('GET', 'companies');
   const tot = companies.reduce((a, c) => ({ users: a.users + c.users, pending: a.pending + c.pending }), { users: 0, pending: 0 });
   return html`
-    <div class="page-title"><div><div class="eyebrow">Gestor geral</div><h1>Empresas</h1></div><div class="row"><button class="btn sm" data-act="direct-new">${raw(ICON.plus)} Cliente direto</button><button class="btn primary sm" data-act="co-new">${raw(ICON.plus)} Empresa</button></div></div>
+    <div class="page-title"><div><div class="eyebrow">Gestor geral</div><h1>Empresas</h1></div><div class="row"><button class="btn sm" data-act="direct-new">${raw(ICON.plus)} Cliente</button><button class="btn primary sm" data-act="co-new">${raw(ICON.plus)} Empresa</button></div></div>
     <div class="grid3" style="margin-bottom:14px"><div class="stat"><b>${companies.length}</b><span>empresas</span></div><div class="stat"><b>${tot.users}</b><span>usuários</span></div><div class="stat"><b>${tot.pending}</b><span>aguardando aprovação</span></div></div>
     ${companies.length ? '' : raw('<div class="empty">Nenhuma empresa ainda. Crie a primeira e defina o administrador dela.</div>')}
     ${companies.map(c => raw(html`<div class="card co ${c.status}">
@@ -320,7 +320,8 @@ const configStaff = () => html`
   <div class="card"><h3>Trocar senha</h3><form data-form="password" style="margin-top:10px">${raw(pwField('current', 'Senha atual'))}
     ${raw(pwField('new', 'Nova senha', { auto: 'new-password', rules: true }))}<button class="btn block" type="submit">Trocar senha</button></form></div>
   <div class="card"><button class="btn block" data-act="logout">Sair</button></div>
-  <p class="center small muted">Meus Treinos · v${S.version || ''}</p>`;
+  <p class="center small muted">Meus Treinos · v${S.version || ''}</p>
+  ${raw(devCredit())}`;
 
 /* =====================================================================
  *  Ações e formulários

@@ -89,7 +89,7 @@ document.addEventListener('submit', e => {
  *  Telas de acesso: entrar, cadastro, esqueci a senha, redefinir
  * ===================================================================== */
 const authHead = (title, sub) => html`<img class="logo ${S.brand?.logo ? 'custom' : 'sm'}" src="${S.brand?.logo || 'assets/img/logo-icone.svg'}" alt="${S.brand?.app_name || ''}"><h1>${title}</h1><p class="sub">${sub}</p>`;
-const authFoot = () => html`<div class="credit"><a href="https://ariceliomoura.com.br/" target="_blank" rel="noopener">Desenvolvido por Aricelio Moura</a></div>`;
+const authFoot = () => ''; // o crédito do desenvolvedor mora só em Mais/Configurações
 
 function authViewV3(mode, token = '') {
   if (mode === 'pending') return html`<div class="auth">
@@ -204,12 +204,12 @@ function partnerCard(pt) {
 route(/^#\/assinatura$/, async () => {
   const o = await api('GET', 'pay/options');
   const until = o.access_until ? fmtD(o.access_until) : 'sem prazo';
-  if (o.kind === 'empresa') return html`<div class="page-title"><div><div class="eyebrow">Plataforma</div><h1>Mensalidade da empresa</h1></div></div>
+  if (o.kind === 'empresa') return html`${raw(backLink('#/financeiro', 'Financeiro'))}<div class="page-title"><div><div class="eyebrow">Plataforma</div><h1>Mensalidade da empresa</h1></div></div>
     <div class="card"><p class="muted" style="margin:0 0 8px">Acesso da empresa até <b>${until}</b>.</p>
       ${o.plan ? raw(html`<h3>${o.plan.name} · ${o.quote && o.quote.discount_cents ? '' : money(o.plan.price_cents) + ' por mês'}</h3>${o.quote && o.quote.discount_cents ? raw(html`<p style="margin:0"><s class="muted">${money(o.quote.list_cents)}</s> <b style="font-size:1.3rem">${money(o.quote.amount_cents)}</b> por mês</p><p class="small" style="color:var(--ok);margin:4px 0 0">Desconto de ${money(o.quote.discount_cents)} · ${o.quote.discount_note}</p>`) : ''}`) : raw('<p>Sua empresa ainda não tem um plano definido. Fale com o gestor.</p>')}
       ${o.enabled && o.plan ? raw(html`<form data-form="pay-create" style="margin-top:12px">${raw(taxField())}<button class="btn primary block" type="submit">Pagar 1 mês com PIX</button>${raw(cardBtn(o.card))}</form>`) : raw('<p class="hint">O pagamento online ainda não está ativo.</p>')}</div>
     ${o.partner ? raw(partnerCard(o.partner)) : ''}`;
-  return html`<div class="page-title"><div><div class="eyebrow">Assinatura</div><h1>Renovar meu acesso</h1></div></div>
+  return html`${raw(backLink())}<div class="page-title"><div><div class="eyebrow">Assinatura</div><h1>Renovar meu acesso</h1></div></div>
     <div class="card"><p class="muted" style="margin:0">Seu acesso vale até <b>${until}</b>. Ao pagar, o novo período soma ao que ainda resta.</p></div>
     ${o.enabled ? '' : raw('<div class="card note">O pagamento online ainda não está ativo. Fale com a sua academia para renovar.</div>')}
     <form data-form="pay-create">${raw(planCards(o.plans))}${o.plans.length && o.enabled ? raw(html`${raw(taxField())}<button class="btn primary block" type="submit">Gerar PIX</button>${raw(cardBtn(o.card))}`) : ''}</form>`;
@@ -222,7 +222,7 @@ const refShareText = (code, app) => `Venha treinar comigo no ${app}! Use o meu c
 route(/^#\/indicar$/, async () => {
   const r = await api('GET', 'referral/me');
   const ru = r.rules;
-  return html`<div class="page-title"><div><div class="eyebrow">Indique e ganhe</div><h1>Indicar amigos</h1></div></div>
+  return html`${raw(backLink())}<div class="page-title"><div><div class="eyebrow">Indique e ganhe</div><h1>Indicar amigos</h1></div></div>
     <div class="card hl center"><span class="ic big">${raw(ICON.gift)}</span><div class="small muted">Seu código de indicação</div><div class="refcode">${r.code}</div>
       <div class="row wrap" style="justify-content:center;margin-top:8px"><button class="btn sm" data-act="copy-text" data-v="${r.code}">${raw(ICON.copy)} Copiar código</button>
       <a class="btn sm wa" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(refShareText(r.code, S.brand?.app_name || 'Meus Treinos'))}">${raw(ICON.whats)} Enviar pelo WhatsApp</a></div></div>
@@ -234,7 +234,7 @@ route(/^#\/indicar$/, async () => {
 
 route(/^#\/ganhos$/, async () => {
   const r = await api('GET', 'referral/me'), e = r.earnings, ru = r.rules;
-  return html`<div class="page-title"><div><div class="eyebrow">Indicações</div><h1>Meus ganhos</h1></div></div>
+  return html`${raw(backLink())}<div class="page-title"><div><div class="eyebrow">Indicações</div><h1>Meus ganhos</h1></div></div>
     <div class="card hl"><div class="small muted">Comissão a receber</div><div class="bigmoney">${money(e.pending)}</div><div class="small muted">${pctTxt(ru.commission_pct)} sobre o que os alunos indicados por você pagam, por ${ru.commission_months} meses. Já repassado: ${money(e.paid)}.</div></div>
     <div class="card"><div class="small muted">Seu código de indicação</div><div class="refcode">${r.code}</div>
       <div class="row wrap" style="margin-top:8px"><button class="btn sm" data-act="copy-text" data-v="${r.code}">${raw(ICON.copy)} Copiar</button>
@@ -284,7 +284,7 @@ function finTab() {
     const s = FIN.settings;
     return html`<div class="card"><h3>Programa de indicação</h3><p class="hint">Todo desconto é sobre o valor de <b>um mês</b> do plano e vale só na próxima renovação (nunca no período já pago).</p>
       <form data-form="fin-settings">
-        <div class="grid2"><label class="f">Desconto de quem foi indicado (%)<input class="in" name="discount_referred_pct" inputmode="decimal" value="${s.discount_referred_pct}" required></label>
+        <div class="grid2 f1"><label class="f">Desconto de quem foi indicado (%)<input class="in" name="discount_referred_pct" inputmode="decimal" value="${s.discount_referred_pct}" required></label>
         <label class="f">Desconto de quem indicou, por amigo (%)<input class="in" name="discount_referrer_pct" inputmode="decimal" value="${s.discount_referrer_pct}" required></label>
         <label class="f">Teto de desconto (%)<input class="in" name="discount_cap_pct" inputmode="decimal" value="${s.discount_cap_pct}" required></label>
         <label class="f">Comissão do personal (%)<input class="in" name="commission_pct" inputmode="decimal" value="${s.commission_pct}" required></label>
@@ -293,7 +293,7 @@ function finTab() {
         <div class="infobox"><span>Exemplo: plano Trimestral de R$ 210,00 (R$ 70,00 por mês) e desconto de 10%: abate R$ 7,00 e a renovação sai por R$ 203,00. A comissão do personal é sobre o valor pago (R$ 203,00).</span></div>
         <button class="btn primary block" type="submit">Salvar regras</button></form></div>
     <div class="card" id="simB"><h3>Simulador: quanto sobra com cada aluno indicado?</h3><p class="hint">O dinheiro dos alunos é da <b>sua</b> empresa; a plataforma só cobra a mensalidade do seu plano.</p>
-      <div class="grid2"><label class="f">Preço do plano por aluno (R$/mês)<input class="in" inputmode="decimal" data-simb="price" value="${centsToInput((FIN.plans.find(p => p.months === 1) || FIN.plans[0] || { price_cents: 3000 }).price_cents / ((FIN.plans.find(p => p.months === 1) || FIN.plans[0] || { months: 1 }).months || 1))}"></label>
+      <div class="grid2 f1"><label class="f">Preço do plano por aluno (R$/mês)<input class="in" inputmode="decimal" data-simb="price" value="${centsToInput((FIN.plans.find(p => p.months === 1) || FIN.plans[0] || { price_cents: 3000 }).price_cents / ((FIN.plans.find(p => p.months === 1) || FIN.plans[0] || { months: 1 }).months || 1))}"></label>
         <label class="f">Alunos pagantes<input class="in" inputmode="numeric" data-simb="n" value="50"></label>
         <label class="f">Mensalidade da plataforma (R$)<input class="in" inputmode="decimal" data-simb="fee" value="49,90"></label></div>
       <div id="simB-out"></div></div>`;
@@ -462,8 +462,8 @@ const copyText = async (v, msg = 'Copiado!') => { try { await navigator.clipboar
 /** Botões de contato com o suporte (WhatsApp e e-mail), quando o config.php tem 'support'. */
 function supportButtons(whatsText, mailSubject) {
   const sp = S.support; if (!sp) return '';
-  return (sp.whatsapp ? '<a class="btn block" style="margin-bottom:10px" target="_blank" rel="noopener" href="https://wa.me/' + esc(sp.whatsapp) + '?text=' + encodeURIComponent(whatsText) + '">' + ICON.whats + ' Falar com o suporte pelo WhatsApp</a>' : '')
-    + (sp.email ? '<a class="btn block" style="margin-bottom:10px" href="mailto:' + esc(sp.email) + '?subject=' + encodeURIComponent(mailSubject) + '">Falar com o suporte por e-mail</a>' : '');
+  return (sp.whatsapp ? '<a class="btn block" style="margin-bottom:10px" target="_blank" rel="noopener" href="https://wa.me/' + esc(sp.whatsapp) + '?text=' + encodeURIComponent(whatsText) + '">' + ICON.whats + ' Suporte no WhatsApp</a>' : '')
+    + (sp.email ? '<a class="btn block" style="margin-bottom:10px" href="mailto:' + esc(sp.email) + '?subject=' + encodeURIComponent(mailSubject) + '">Suporte por e-mail</a>' : '');
 }
 const appName = () => S.brand?.app_name || 'aplicativo';
 /** Login bloqueado por excesso de tentativas: saídas rápidas, sem esperar. */
