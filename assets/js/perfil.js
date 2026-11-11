@@ -53,7 +53,7 @@ async function openExerciseInfo(id, rx) {
       ${e.steps?.length ? `<h3>Como fazer</h3>${list(e.steps, 'ol')}` : ''}
       ${e.tips?.length ? `<h3>Dicas</h3>${list(e.tips)}` : ''}
       ${e.mistakes?.length ? `<h3>Evite</h3>${list(e.mistakes)}` : ''}
-      <a class="btn block ghost" href="#/exercicio/${e.id}" data-close style="margin-top:10px">Ver meu histórico neste exercício</a>
+      ${S.user?.role === 'aluno' ? `<a class="btn block ghost" href="#/exercicio/${e.id}" data-close style="margin-top:10px">Ver meu histórico neste exercício</a>` : ''}
     </div>`);
 }
 
