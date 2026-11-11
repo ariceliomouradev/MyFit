@@ -63,8 +63,8 @@ route(/^#\/gestor$/, async () => {
 
 route(/^#\/gestor\/usuarios$/, async () => {
   const [{ users }, { companies }] = await Promise.all([api('GET', 'manage/users'), api('GET', 'companies')]);
-  TEAM = { cid: 0, tab: 'todos', q: '', users, companies, personals: [], summary: null, all: true };
-  return html`<div class="page-title"><div><div class="eyebrow">Gestor geral</div><h1>Todos os usuários</h1></div><a class="btn sm" href="api/manage/export.csv" download>Exportar contatos</a></div>
+  TEAM = { cid: 0, tab: 'todos', q: '', page: 1, users, companies, personals: [], summary: null, all: true };
+  return html`${raw(backLink())}<div class="page-title"><div><div class="eyebrow">Gestor geral</div><h1>Todos os usuários</h1></div><a class="btn sm" href="api/manage/export.csv" download>Exportar contatos</a></div>
     ${raw(teamBody())}`;
 }, { after: () => bindTeam() });
 
@@ -90,7 +90,7 @@ async function loadAudit() {
 
 async function teamView(cid) {
   const [{ users }, sm] = await Promise.all([api('GET', `manage/users${teamQs(S.user.role === 'super' ? cid : 0)}`), api('GET', `manage/summary${teamQs(S.user.role === 'super' ? cid : 0)}`)]);
-  TEAM = { cid, tab: sm.summary.pendentes ? 'pendente' : 'aluno', q: '', users, personals: sm.personals, summary: sm.summary, company: sm.company };
+  TEAM = { cid, tab: sm.summary.pendentes ? 'pendente' : 'aluno', q: '', page: 1, users, personals: sm.personals, summary: sm.summary, company: sm.company };
   const c = sm.company, s = sm.summary;
   return html`
     <div class="page-title"><div><div class="eyebrow">${S.user.role === 'super' ? 'Empresa' : 'Administrador'}</div><h1>${c.name}</h1></div>
@@ -122,17 +122,19 @@ function teamList() {
   const rows = t.users.filter(x => (t.tab === 'todos' || (t.tab === 'pendente' ? x.status === 'pendente' : x.role === t.tab && x.status !== 'pendente'))
     && (!q || `${x.name} ${x.email} ${x.whatsapp || ''}`.toLowerCase().includes(q)));
   if (!rows.length) return html`<div class="empty">${t.tab === 'pendente' ? 'Nenhum cadastro aguardando aprovação.' : 'Nenhum usuário encontrado.'}</div>`;
-  return html`<div class="card days">${rows.map(x => raw(html`<div class="urow">
+  const pg = pageInfo(rows, t.page, 20); t.page = pg.page;
+  PGH.team = n => { TEAM.page = n; $('#team-list').innerHTML = teamList(); toTop('#team-q'); };
+  return html`<div class="row between pg-head"><p class="hint" style="margin:0">${raw(pgCount(pg, 'usuário', 'usuários'))}</p>${raw(pagerMini('team', pg))}</div><div class="card days">${pg.slice.map(x => raw(html`<div class="urow">
     <button class="urow-main" data-act="user-open" data-id="${x.id}" aria-label="Gerenciar ${x.name}">
       <span class="t">${x.name} <span class="badge">${ROLE[x.role]}</span></span>
       <span class="s">${x.email}${x.whatsapp ? ' · ' + waFmt(x.whatsapp) : ''}${TEAM.all && x.company_name ? ' · ' + x.company_name : ''}</span>
       <span class="tags">${raw(statusTag(x))}${x.status !== 'pendente' ? raw(validTag(x)) : ''}${x.role === 'aluno' && x.personal_name ? raw(html`<span class="badge">Personal: ${x.personal_name}</span>`) : ''}${x.goal ? raw(html`<span class="badge">${GOAL[x.goal]}${x.bmi ? ' · IMC ' + fmtNum(x.bmi) : ''}</span>`) : ''}</span></button>
-    <span class="uact">${x.status === 'pendente' ? raw(html`<button class="btn sm primary" data-act="user-approve" data-id="${x.id}">Aprovar</button>`) : ''}${raw(waBtn(x.whatsapp, ''))}</span></div>`))}</div>`;
+    <span class="uact">${x.status === 'pendente' ? raw(html`<button class="btn sm primary" data-act="user-approve" data-id="${x.id}">Aprovar</button>`) : ''}${raw(waBtn(x.whatsapp, ''))}</span></div>`))}</div>${raw(pagerFull('team', pg))}`;
 }
 
 function bindTeam() {
-  $$('[data-team-tab]').forEach(b => b.addEventListener('click', () => { TEAM.tab = b.dataset.teamTab; $$('[data-team-tab]').forEach(x => x.setAttribute('aria-selected', x === b)); $('#team-list').innerHTML = teamList(); }));
-  $('#team-q')?.addEventListener('input', e => { TEAM.q = e.target.value; $('#team-list').innerHTML = teamList(); });
+  $$('[data-team-tab]').forEach(b => b.addEventListener('click', () => { TEAM.tab = b.dataset.teamTab; TEAM.page = 1; $$('[data-team-tab]').forEach(x => x.setAttribute('aria-selected', x === b)); $('#team-list').innerHTML = teamList(); }));
+  $('#team-q')?.addEventListener('input', e => { TEAM.q = e.target.value; TEAM.page = 1; $('#team-list').innerHTML = teamList(); });
 }
 const teamUser = id => TEAM.users.find(u => u.id == id);
 const teamReload = async () => { // atualiza só a lista (mantém aba e busca)

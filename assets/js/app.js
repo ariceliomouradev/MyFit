@@ -625,11 +625,42 @@ function syncRoutineForm() {
 }
 const repaintRoutine = () => { $('main').innerHTML = routineEditor(); };
 
+/* ---- Paginação reutilizável (primeira, anterior, números, próxima, última e "ir para a página") ---- */
+const PGH = {}; // id -> função(página) que redesenha a lista
+const pageInfo = (items, page, per) => {
+  const pages = Math.max(1, Math.ceil(items.length / per)), p = Math.min(Math.max(1, Math.round(+page) || 1), pages), from = (p - 1) * per;
+  return { page: p, pages, from, total: items.length, slice: items.slice(from, from + per) };
+};
+const pgBtn = (n, label, off, aria, cur) => html`<button type="button" class="btn sm${cur ? ' primary' : ''}" data-pgn="${n}" ${off ? raw('disabled') : ''} aria-label="${aria || 'Página ' + n}" ${cur ? raw('aria-current="page"') : ''}>${label}</button>`;
+/** Barra compacta (topo): « ‹ [página] de N › » */
+const pagerMini = (id, pg) => pg.pages < 2 ? '' : html`<nav class="pager mini" data-pager="${id}" aria-label="Paginação">${raw(pgBtn(1, '«', pg.page <= 1, 'Primeira página'))}${raw(pgBtn(pg.page - 1, '‹', pg.page <= 1, 'Página anterior'))}<input class="in pgi" type="number" inputmode="numeric" min="1" max="${pg.pages}" value="${pg.page}" data-pgi aria-label="Ir para a página"><span class="small muted">de ${pg.pages}</span>${raw(pgBtn(pg.page + 1, '›', pg.page >= pg.pages, 'Próxima página'))}${raw(pgBtn(pg.pages, '»', pg.page >= pg.pages, 'Última página'))}</nav>`;
+/** Barra completa (rodapé): « ‹ 1 … 6 7 8 … 15 › » + campo "ir para a página" */
+const pagerFull = (id, pg) => {
+  if (pg.pages < 2) return '';
+  const set = new Set([1, pg.pages, pg.page - 1, pg.page, pg.page + 1]); if (pg.page <= 3) { set.add(2); set.add(3); } if (pg.page >= pg.pages - 2) { set.add(pg.pages - 1); set.add(pg.pages - 2); }
+  const nums = [...set].filter(n => n >= 1 && n <= pg.pages).sort((a, b) => a - b); let prev = 0, mid = '';
+  for (const n of nums) { if (n - prev > 1) mid += '<span class="pg-gap" aria-hidden="true">…</span>'; mid += pgBtn(n, n, false, 'Página ' + n, n === pg.page); prev = n; }
+  return html`<nav class="pager" data-pager="${id}" aria-label="Paginação">${raw(pgBtn(1, '«', pg.page <= 1, 'Primeira página'))}${raw(pgBtn(pg.page - 1, '‹', pg.page <= 1, 'Página anterior'))}<span class="pg-nums">${raw(mid)}</span>${raw(pgBtn(pg.page + 1, '›', pg.page >= pg.pages, 'Próxima página'))}${raw(pgBtn(pg.pages, '»', pg.page >= pg.pages, 'Última página'))}<label class="pg-go small muted">Ir para <input class="in pgi" type="number" inputmode="numeric" min="1" max="${pg.pages}" placeholder="${pg.page}" data-pgi aria-label="Ir para a página"> de ${pg.pages}</label></nav>`;
+};
+const pgCount = (pg, one, many) => html`<b>${pg.total}</b> ${pg.total === 1 ? one : many}${pg.total ? ` · mostrando ${pg.from + 1}–${pg.from + pg.slice.length}` : ''}`;
+document.addEventListener('click', e => {
+  const b = e.target.closest?.('[data-pager] [data-pgn]'); if (!b || b.disabled) return;
+  PGH[b.closest('[data-pager]').dataset.pager]?.(+b.dataset.pgn);
+});
+document.addEventListener('change', e => {
+  const i = e.target.closest?.('[data-pager] [data-pgi]'); if (!i || i.value === '') return;
+  PGH[i.closest('[data-pager]').dataset.pager]?.(Math.round(+i.value) || 1);
+});
+document.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.matches?.('[data-pgi]')) { e.preventDefault(); e.target.dispatchEvent(new Event('change', { bubbles: true })); } });
+const backLink = (href = '#/config', label = 'Mais') => html`<a class="back" href="${href}" aria-label="Voltar para ${label}">‹ ${label}</a>`;
+const toTop = sel => { const el = $(sel); if (el) el.scrollIntoView({ block: 'start', behavior: 'smooth' }); };
+
 /* ---- Biblioteca ---- */
 let LIB = { q: '', muscle: '', env: '', page: 1 };
 route(/^#\/exercicios$/, async () => { await loadExercises(true); return libraryHtml(); }, { after: () => bindLibrary() });
 function libraryHtml() {
   return html`
+    ${S.user.role === 'super' ? raw(backLink()) : ''}
     <div class="page-title"><h1>Exercícios</h1>${S.user.role === 'aluno' ? '' : raw(html`<button class="btn primary sm" data-act="ex-new">${raw(ICON.plus)} Novo</button>`)}</div>
     <input class="in" type="search" id="lib-q" placeholder="Buscar exercício…" value="${LIB.q}" style="margin:0 0 10px" aria-label="Buscar exercício">
     <div class="chips">${[['', 'Todos os locais'], ['casa', 'Em casa'], ['academia', 'Academia']].map(([k, v]) => raw(html`<button class="chip" aria-pressed="${k === LIB.env}" data-le="${k}">${v}</button>`))}</div>
@@ -641,15 +672,12 @@ function bindLibrary() {
   const PER = 20;
   const draw = () => {
     const items = S.exercises.filter(e => (!LIB.muscle || e.muscle === LIB.muscle) && envOk(e, LIB.env) && (!LIB.q || norm(e.name).includes(norm(LIB.q))));
-    const pages = Math.max(1, Math.ceil(items.length / PER));
-    LIB.page = Math.min(Math.max(1, LIB.page), pages);
-    const from = (LIB.page - 1) * PER, shown = items.slice(from, from + PER);
-    const pager = html`<div class="row between" style="margin:8px 0"><button class="btn sm" data-pg="-1" ${LIB.page <= 1 ? raw('disabled') : ''}>‹ Anterior</button><span class="small muted">Página ${LIB.page} de ${pages}</span><button class="btn sm" data-pg="1" ${LIB.page >= pages ? raw('disabled') : ''}>Próxima ›</button></div>`;
-    const rows = shown.map(e => raw(html`<li><button class="pick" data-act="ex-info" data-ex="${e.id}">${raw(mediaTag(e.media, e.name, 'thumb sm'))}<span class="grow"><span class="t">${e.name}</span><span class="s">${MUSCLE[e.muscle]} · ${EQUIP[e.equipment]}${e.level ? ' · ' + LVL_SHORT[e.level] : ''}${e.type === 'time' ? ' · por tempo' : ''}</span></span></button>
+    const pg = pageInfo(items, LIB.page, PER); LIB.page = pg.page;
+    const rows = pg.slice.map(e => raw(html`<li><button class="pick" data-act="ex-info" data-ex="${e.id}">${raw(mediaTag(e.media, e.name, 'thumb sm'))}<span class="grow"><span class="t">${e.name}</span><span class="s">${MUSCLE[e.muscle]} · ${EQUIP[e.equipment]}${e.level ? ' · ' + LVL_SHORT[e.level] : ''}${e.type === 'time' ? ' · por tempo' : ''}</span></span></button>
       ${e.mine || (e.shared && S.user.role !== 'aluno') ? raw(html`<span class="badge ${e.share === 'pendente' ? 'tone-warn' : e.share === 'recusado' ? 'tone-bad' : ''}" title="${e.share_note || ''}">${e.shared ? ({ pendente: 'aguardando gestor', recusado: 'recusado' }[e.share] || 'só a empresa') : 'meu'}</span><button class="icon-btn" data-act="ex-edit" data-id="${e.id}" aria-label="Editar">${raw(ICON.edit)}</button>`) : ''}</li>`));
-    $('#lib-list').innerHTML = items.length ? html`<div class="row between" style="margin:0 0 4px"><p class="hint" style="margin:0"><b>${items.length}</b> ${items.length === 1 ? 'exercício' : 'exercícios'} · mostrando ${from + 1}–${from + shown.length}</p>${pages > 1 ? raw(html`<span class="row" style="gap:6px"><button class="btn sm" data-pg="-1" aria-label="Página anterior" ${LIB.page <= 1 ? raw('disabled') : ''}>‹</button><span class="small muted">${LIB.page}/${pages}</span><button class="btn sm" data-pg="1" aria-label="Próxima página" ${LIB.page >= pages ? raw('disabled') : ''}>›</button></span>`) : ''}</div><ul class="list">${rows}</ul>${pages > 1 ? raw(pager) : ''}` : '<p class="empty">Nenhum exercício encontrado.</p>';
-    $$('#lib-list [data-pg]').forEach(b => b.addEventListener('click', () => { LIB.page += +b.dataset.pg; draw(); $('#lib-q').scrollIntoView({ block: 'start', behavior: 'smooth' }); }));
+    $('#lib-list').innerHTML = items.length ? html`<div class="row between pg-head"><p class="hint" style="margin:0">${raw(pgCount(pg, 'exercício', 'exercícios'))}</p>${raw(pagerMini('lib', pg))}</div><ul class="list">${rows}</ul>${raw(pagerFull('lib', pg))}` : '<p class="empty">Nenhum exercício encontrado.</p>';
   };
+  PGH.lib = n => { LIB.page = n; draw(); toTop('#lib-q'); };
   draw();
   $('#lib-q').addEventListener('input', e => { LIB.q = e.target.value; LIB.page = 1; draw(); });
   $$('[data-lm]').forEach(b => b.addEventListener('click', () => { LIB.muscle = b.dataset.lm; LIB.page = 1; $$('[data-lm]').forEach(c => c.setAttribute('aria-pressed', c === b)); draw(); }));

@@ -78,3 +78,17 @@ textarea.mono{font-size:.75rem;word-break:break-all;resize:none}
 .fgroup .infobox{margin:0}
 .sheet .scroll .chk{margin:4px 0 14px}
 .tags{display:flex;flex-wrap:wrap;gap:6px}
+
+/* Paginação, botão voltar e gerador de senha (v3.5) */
+.back{display:inline-flex;align-items:center;gap:4px;margin:2px 0 8px;color:var(--ambar);font-weight:600;font-size:.95rem;text-decoration:none;min-height:40px}
+.back:hover{text-decoration:underline}
+.pg-head{gap:10px;flex-wrap:wrap;margin:0 0 6px}
+.pager{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;margin:12px 0 4px}
+.pager.mini{margin:0;gap:4px;flex-wrap:nowrap}
+.pager .btn.sm{min-width:36px;padding:6px 8px}
+.pager .btn[disabled]{opacity:.4;cursor:default}
+.pg-nums{display:inline-flex;gap:4px;flex-wrap:wrap;justify-content:center}
+.pg-gap{padding:0 2px;color:var(--muted)}
+.pgi{width:64px;min-width:0;padding:6px 8px;text-align:center;margin:0}
+.pg-go{display:inline-flex;align-items:center;gap:6px;margin-left:4px}
+.pwgen{margin:6px 0 12px}

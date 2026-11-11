@@ -43,6 +43,15 @@ const waField = (name = 'whatsapp', label = 'WhatsApp (obrigatório)', value = '
 const taxField = (value = '') =>
   html`<label class="f">CPF ou CNPJ de quem paga<input class="in" name="tax_id" value="${taxFormat(value)}" inputmode="numeric" maxlength="18" placeholder="000.000.000-00" autocomplete="off" data-mask="tax" required><span class="hint">Exigido pelo PagBank para gerar o PIX. Não ficamos com ele.</span></label>`;
 
+/** Gera senha forte (16 caracteres, sem letras confusas) que cumpre todas as regras: minúscula, MAIÚSCULA, número e símbolo. */
+function genPassword(len = 16) {
+  const L = 'abcdefghjkmnpqrstuvwxyz', U = 'ABCDEFGHJKLMNPQRSTUVWXYZ', N = '23456789', Y = '#@!$%&*?', all = L + U + N + Y;
+  const rnd = n => { const a = new Uint32Array(1), lim = Math.floor(0x100000000 / n) * n; let x; do { crypto.getRandomValues(a); x = a[0]; } while (x >= lim); return x % n; };
+  const pick = set => set[rnd(set.length)];
+  const c = [pick(L), pick(U), pick(N), pick(Y)]; while (c.length < len) c.push(pick(all));
+  for (let i = c.length - 1; i > 0; i--) { const j = rnd(i + 1); [c[i], c[j]] = [c[j], c[i]]; }
+  return c.join('');
+}
 const PW_RULES = [['len', 'No mínimo 12 caracteres'], ['low', 'Uma letra minúscula'], ['up', 'Uma letra MAIÚSCULA'], ['num', 'Um número'], ['sym', 'Um símbolo: # @ ! $ % & * ?']];
 const PW_TESTS = { len: v => v.length >= 12, low: v => /[a-z]/.test(v), up: v => /[A-Z]/.test(v), num: v => /\d/.test(v), sym: v => /[^A-Za-z0-9]/.test(v) };
 const pwError = v => !PW_TESTS.len(v) ? 'A senha precisa ter no mínimo 12 caracteres.' : v.length > 72 ? 'A senha pode ter no máximo 72 caracteres.' : /\s|[^\x21-\x7E]/.test(v) ? 'Use só letras sem acento, números e símbolos (sem espaços).'
@@ -50,7 +59,7 @@ const pwError = v => !PW_TESTS.len(v) ? 'A senha precisa ter no mínimo 12 carac
 const pwRules = () => html`<ul class="pwrules" data-pwrules aria-live="polite"><li class="pwr-t">Sua senha precisa ter</li>${PW_RULES.map(([k, t]) => raw(html`<li data-r="${k}"><i aria-hidden="true">${raw(ICON.check)}</i>${t}</li>`))}</ul>`;
 /** Campo de senha com botão de olho. rules=true mostra a lista de regras (cadastro e troca de senha). */
 const pwField = (name, label, { auto = 'current-password', rules = false, req = true } = {}) =>
-  html`<label class="f">${label}<span class="pw"><input class="in" type="password" name="${name}" autocomplete="${auto}" maxlength="72" autocapitalize="off" spellcheck="false" ${req ? raw('required') : ''} ${rules ? raw('data-policy') : ''}><button type="button" class="eye" data-act="pw-toggle" aria-label="Mostrar senha" aria-pressed="false">${raw(ICON.eye)}</button></span></label>${rules ? raw(pwRules()) : ''}`;
+  html`<label class="f">${label}<span class="pw"><input class="in" type="password" name="${name}" autocomplete="${auto}" maxlength="72" autocapitalize="off" spellcheck="false" ${req ? raw('required') : ''} ${rules ? raw('data-policy') : ''}><button type="button" class="eye" data-act="pw-toggle" aria-label="Mostrar senha" aria-pressed="false">${raw(ICON.eye)}</button></span></label>${rules ? raw(pwRules() + '<button type="button" class="btn sm pwgen" data-act="pw-gen">Gerar senha forte</button>') : ''}`;
 
 document.addEventListener('input', e => {
   const el = e.target; if (!el.matches) return;
@@ -250,7 +259,7 @@ route(/^#\/financeiro$/, async () => {
 
 function finHtml() {
   const tabs = [['painel', 'Painel'], ['planos', 'Planos'], ['indic', 'Indicações'], ['receber', 'Receber']];
-  return html`<div class="page-title"><div><div class="eyebrow">${S.user.role === 'super' ? 'Gestor geral' : 'Administrador'}</div><h1>Financeiro</h1></div>${S.user.role === 'admin' ? raw('<a class="btn sm" href="#/assinatura">Mensalidade da plataforma</a>') : ''}</div>
+  return html`${S.user.role === 'super' ? raw(backLink()) : ''}<div class="page-title"><div><div class="eyebrow">${S.user.role === 'super' ? 'Gestor geral' : 'Administrador'}</div><h1>Financeiro</h1></div>${S.user.role === 'admin' ? raw('<a class="btn sm" href="#/assinatura">Mensalidade da plataforma</a>') : ''}</div>
     ${S.user.role === 'super' ? raw(html`<label class="f">Empresa<select class="in" data-fin-company>${FIN.companies.map(c => raw(html`<option value="${c.id}" ${c.id === FIN.cid ? raw('selected') : ''}>${c.name}</option>`))}</select></label>`) : ''}
     <div class="seg" role="tablist">${tabs.map(([k, l]) => raw(html`<button role="tab" aria-selected="${FIN.tab === k}" data-act="fin-tab" data-t="${k}">${l}</button>`))}</div>
     <div id="fin-body">${raw(finTab())}</div>`;
@@ -287,13 +296,14 @@ function finTab() {
       <button class="btn primary block" data-act="fin-manual">Registrar pagamento</button></div>
     <div class="day-h">Últimas cobranças</div>${raw(finRecent(d))}`;
   const max = Math.max(1, ...d.series.map(s => s.net));
+  const cg = pageInfo(d.commissions, FINPG.c, 10); FINPG.c = cg.page;
   return html`<div class="grid2"><div class="stat big"><b>${money(t.gross - t.discounts - t.commissions)}</b><span>receita líquida (${d.months} meses)</span>${d.growth_pct == null ? '' : raw(html`<em class="${d.growth_pct >= 0 ? 'up' : 'dn'}">${d.growth_pct >= 0 ? '+' : ''}${fmtNum(d.growth_pct, 1)}% no mês</em>`)}</div>
       <div class="stat big"><b>${money(d.mrr)}</b><span>receita mensal recorrente</span></div>
       <div class="stat big"><b>${d.active_students}</b><span>alunos com acesso · ${d.new_students} novos no mês</span></div>
       <div class="stat big"><b>${fmtNum(d.churn_pct, 1)}%</b><span>vencidos no mês (${d.expired_this_month})</span></div></div>
     <div class="card"><h3>Receita líquida por mês</h3><div class="bars">${d.series.map((s, i) => raw(html`<div class="bcol"><span class="bv">${s.net ? money(s.net).replace(/,\d\d$/, '') : ''}</span><div class="bar ${i === d.series.length - 1 ? 'cur' : ''}" style="height:${Math.max(3, Math.round(100 * s.net / max))}%"></div><span class="bl">${ymLabel(s.month)}</span></div>`))}</div></div>
     <div class="card"><h3>Para onde vai o dinheiro</h3><ul class="list sum"><li><span class="muted">Receita bruta (preço de tabela)</span><b>${money(t.gross)}</b></li><li><span class="muted">(−) Descontos de indicação</span><b class="neg">${money(t.discounts)}</b></li><li><span class="muted">(−) Comissões dos personais</span><b class="neg">${money(t.commissions)}</b></li><li><span class="muted">Receita líquida</span><b class="pos">${money(t.gross - t.discounts - t.commissions)}</b></li><li><span class="muted">Ticket médio (${t.payments} pagamentos)</span><b>${money(t.avg_ticket)}</b></li></ul></div>
-    <div class="card"><h3>Comissões dos personais</h3>${d.commissions.length ? raw(html`<ul class="list">${d.commissions.map(c => raw(html`<li><div class="grow"><div class="t">${c.name}</div><div class="s">${c.payments} pagamentos · já repassado ${money(c.paid)}</div></div><b class="mono">${money(c.pending)}</b>${c.pending > 0 ? raw(html`<button class="btn sm" data-act="fin-commission" data-id="${c.user_id}" data-n="${c.name}" data-v="${c.pending}">Repassar</button>`) : raw('<span class="badge tone-ok">em dia</span>')}</li>`))}</ul>`) : raw('<p class="muted small" style="margin:0">Ainda não há comissões. Elas aparecem quando um aluno indicado por um personal paga uma renovação.</p>')}</div>
+    <div class="card"><h3>Comissões dos personais</h3>${d.commissions.length ? raw(html`<div class="row between pg-head"><p class="hint" style="margin:0">${raw(pgCount(cg, 'personal', 'personais'))}</p>${raw(pagerMini('finc', cg))}</div><ul class="list">${cg.slice.map(c => raw(html`<li><div class="grow"><div class="t">${c.name}</div><div class="s">${c.payments} pagamentos · já repassado ${money(c.paid)}</div></div><b class="mono">${money(c.pending)}</b>${c.pending > 0 ? raw(html`<button class="btn sm" data-act="fin-commission" data-id="${c.user_id}" data-n="${c.name}" data-v="${c.pending}">Repassar</button>`) : raw('<span class="badge tone-ok">em dia</span>')}</li>`))}</ul>${raw(pagerFull('finc', cg))}`) : raw('<p class="muted small" style="margin:0">Ainda não há comissões. Elas aparecem quando um aluno indicado por um personal paga uma renovação.</p>')}</div>
     <div class="day-h">Últimas cobranças</div>${raw(finRecent(d))}
     <details class="card"><summary><b>Como calculamos</b></summary><ul class="how" style="margin-top:8px"><li><b>Receita líquida</b> = receita bruta − descontos de indicação − comissões.</li><li><b>MRR</b> = soma do (valor pago ÷ meses do plano) de cada aluno com plano em vigor.</li><li><b>Vencidos no mês</b> = alunos que ficaram sem acesso neste mês ÷ (alunos com acesso + vencidos).</li><li><b>Crescimento</b> compara a receita líquida do mês com a do mês anterior.</li></ul></details>`;
 }
@@ -307,7 +317,15 @@ function simBRefresh() {
     ${(d + com > cap) ? raw('<div class="infobox"><span>Desconto + comissão passariam do teto de incentivos: o sistema reduz o desconto para respeitar o teto.</span></div>') : ''}`;
 }
 document.addEventListener('input', e => { if (e.target.matches?.('[data-simb]') || e.target.closest?.('form[data-form=fin-settings]')) simBRefresh(); });
-const finRecent = d => d.recent.length ? html`<div class="card"><ul class="list">${d.recent.map(p => raw(html`<li><div class="grow"><div class="t">${p.payer}</div><div class="s">${p.plan} · ${p.method === 'manual' ? 'manual' : 'PIX'} · ${fmtDate(p.when)}</div></div><b class="mono">${money(p.amount_cents)}</b><span class="badge ${p.status === 'pago' ? 'tone-ok' : p.status === 'pendente' ? 'tone-warn' : 'tone-bad'}">${p.status}</span></li>`))}</ul></div>` : html`<div class="empty">Nenhuma cobrança ainda.</div>`;
+const FINPG = { r: 1, c: 1 };
+const finRefresh = () => { $('#fin-body').innerHTML = finTab(); };
+PGH.finr = n => { FINPG.r = n; finRefresh(); toTop('#fin-body'); };
+PGH.finc = n => { FINPG.c = n; finRefresh(); toTop('#fin-body'); };
+const finRecentPaged = d => {
+  const pg = pageInfo(d.recent, FINPG.r, 10); FINPG.r = pg.page;
+  return html`<div class="row between pg-head"><p class="hint" style="margin:0">${raw(pgCount(pg, 'cobrança', 'cobranças'))}</p>${raw(pagerMini('finr', pg))}</div><div class="card"><ul class="list">${pg.slice.map(p => raw(html`<li><div class="grow"><div class="t">${p.payer}</div><div class="s">${p.plan} · ${p.method === 'manual' ? 'manual' : 'PIX'} · ${fmtDate(p.when)}</div></div><b class="mono">${money(p.amount_cents)}</b><span class="badge ${p.status === 'pago' ? 'tone-ok' : p.status === 'pendente' ? 'tone-warn' : 'tone-bad'}">${p.status}</span></li>`))}</ul></div>${raw(pagerFull('finr', pg))}`;
+};
+const finRecent = d => d.recent.length ? finRecentPaged(d) : html`<div class="empty">Nenhuma cobrança ainda.</div>`;
 
 /* =====================================================================
  *  Gestor geral: planos da plataforma e aprovação de exercícios
@@ -433,6 +451,19 @@ Object.assign(acts, {
   'unlock-all': guard(async () => {
     if (!await ask('Liberar o login de todos?', 'Apaga as tentativas de login erradas de todos os usuários desta empresa. Todos podem tentar entrar agora.', 'Liberar', { danger: false })) return;
     const r = await api('POST', 'manage/unlock', { company_id: (typeof TEAM !== 'undefined' && TEAM?.cid) || undefined }); toast('Liberado (' + r.released + ' registros).');
+  }),
+  'pw-gen': guard(async el => {
+    const f = el.closest('form'); if (!f) return;
+    const main = f.querySelector('[data-policy]'); if (!main) return;
+    const pw = genPassword(16);
+    for (const inp of [main, f.querySelector('[name=again]')]) {
+      if (!inp) continue;
+      inp.value = pw; inp.type = 'text';
+      const eye = inp.closest('.pw')?.querySelector('.eye'); if (eye) { eye.setAttribute('aria-pressed', 'true'); eye.setAttribute('aria-label', 'Ocultar senha'); }
+    }
+    main.dispatchEvent(new Event('input', { bubbles: true }));
+    let copied = false; try { await navigator.clipboard.writeText(pw); copied = true; } catch { /* sem permissão: a senha fica visível no campo */ }
+    toast(copied ? 'Senha forte gerada e copiada. Guarde em local seguro.' : 'Senha forte gerada. Copie e guarde em local seguro.');
   }),
   'pw-toggle': el => {
     const inp = el.closest('.pw')?.querySelector('input'); if (!inp) return;

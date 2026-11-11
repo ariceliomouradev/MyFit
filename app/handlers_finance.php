@@ -431,8 +431,8 @@ function h_fin_dashboard(array $p, array $u): void
     $novos = (int) Db::val("SELECT COUNT(*) FROM users WHERE company_id=? AND role='aluno' AND approved_at >= ?", [$cid, date('Y-m-01')]);
     $vencidos = (int) Db::val("SELECT COUNT(*) FROM users WHERE company_id=? AND role='aluno' AND status='ativo' AND access_until >= ? AND access_until < CURDATE()", [$cid, date('Y-m-01')]);
     $com = Db::all("SELECT p.commission_user_id uid, u.name, SUM(p.commission_cents) accrued, SUM(CASE WHEN p.commission_paid_at IS NOT NULL THEN p.commission_cents ELSE 0 END) paid, COUNT(*) n
-        FROM payments p LEFT JOIN users u ON u.id=p.commission_user_id WHERE p.company_id=? AND p.kind='aluno' AND p.status='pago' AND p.commission_user_id IS NOT NULL GROUP BY p.commission_user_id, u.name ORDER BY accrued DESC LIMIT 20", [$cid]);
-    $recent = Db::all("SELECT * FROM payments WHERE company_id=? AND kind='aluno' ORDER BY id DESC LIMIT 15", [$cid]);
+        FROM payments p LEFT JOIN users u ON u.id=p.commission_user_id WHERE p.company_id=? AND p.kind='aluno' AND p.status='pago' AND p.commission_user_id IS NOT NULL GROUP BY p.commission_user_id, u.name ORDER BY accrued DESC LIMIT 100", [$cid]);
+    $recent = Db::all("SELECT * FROM payments WHERE company_id=? AND kind='aluno' ORDER BY id DESC LIMIT 200", [$cid]);
     j(['months' => $n, 'series' => $series, 'totals' => $tot + ['avg_ticket' => $tot['payments'] ? (int) round(($tot['gross'] - $tot['discounts']) / $tot['payments']) : 0],
         'mrr' => $mrr, 'active_students' => $ativos, 'new_students' => $novos, 'expired_this_month' => $vencidos,
         'churn_pct' => ($ativos + $vencidos) ? round(100 * $vencidos / ($ativos + $vencidos), 1) : 0.0,
