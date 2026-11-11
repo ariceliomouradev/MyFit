@@ -35,7 +35,7 @@ function catalog_seed(PDO $pdo): int
                 'impact' => ($e['impacto'] ?? 'baixo') === 'alto' ? 'alto' : 'baixo',
                 'pace' => $e['ritmo'] ?? null, 'rep_def' => $e['repeticao'] ?? null,
                 'steps' => $json($e['passos'] ?? []), 'tips' => $json($e['dicas'] ?? []), 'mistakes' => $json($e['erros'] ?? []),
-                'media' => isset($media[$e['slug']]) ? $media[$e['slug']] . '?v=' . (int) @filemtime(APP_ROOT . '/' . $media[$e['slug']]) : null, // ?v= força o navegador a pegar a versão nova
+                'media' => isset($media[$e['slug']]) ? (str_starts_with($media[$e['slug']], 'https://') ? $media[$e['slug']] : $media[$e['slug']] . '?v=' . (int) @filemtime(APP_ROOT . '/' . $media[$e['slug']])) : null, // ?v= força o navegador a pegar a versão nova
                 'hold' => isset($e['tempo_sugerido']) ? (int) $e['tempo_sugerido'] : null,
             ]);
             $n++;

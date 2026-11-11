@@ -7,7 +7,7 @@ if (!is_file(__DIR__ . '/config.php')) {
     exit('<!doctype html><meta charset="utf-8"><meta name="robots" content="noindex"><title>Em configuração</title><body style="font:16px system-ui;background:#101418;color:#e8e6e1;display:grid;place-items:center;min-height:100vh;margin:0;padding:16px;text-align:center"><p>Este aplicativo ainda não foi configurado.<br><small style="color:#9aa3ad">Crie o arquivo config.php (veja INSTALACAO.md).</small></p>');
 }
 $v = static fn(string $f): int => (int) @filemtime(__DIR__ . '/' . $f);
-header("Content-Security-Policy: default-src 'self'; img-src 'self' data: blob:; object-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
+header("Content-Security-Policy: default-src 'self'; img-src 'self' data: blob: https://static.exercisedb.dev; object-src 'none'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self'; manifest-src 'self'; worker-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'");
 header('Cache-Control: no-cache');
 ?><!doctype html>
 <html lang="pt-BR">
