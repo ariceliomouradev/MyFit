@@ -626,7 +626,7 @@ function syncRoutineForm() {
 const repaintRoutine = () => { $('main').innerHTML = routineEditor(); };
 
 /* ---- Biblioteca ---- */
-let LIB = { q: '', muscle: '', env: '' };
+let LIB = { q: '', muscle: '', env: '', page: 1 };
 route(/^#\/exercicios$/, async () => { await loadExercises(true); return libraryHtml(); }, { after: () => bindLibrary() });
 function libraryHtml() {
   return html`
@@ -638,15 +638,22 @@ function libraryHtml() {
 }
 function bindLibrary() {
   const norm = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const PER = 20;
   const draw = () => {
     const items = S.exercises.filter(e => (!LIB.muscle || e.muscle === LIB.muscle) && envOk(e, LIB.env) && (!LIB.q || norm(e.name).includes(norm(LIB.q))));
-    $('#lib-list').innerHTML = items.length ? html`<p class="hint" style="margin:0 0 4px">${items.length} exercícios</p><ul class="list">${items.slice(0, 120).map(e => raw(html`<li><button class="pick" data-act="ex-info" data-ex="${e.id}">${raw(mediaTag(e.media, e.name, 'thumb sm'))}<span class="grow"><span class="t">${e.name}</span><span class="s">${MUSCLE[e.muscle]} · ${EQUIP[e.equipment]}${e.level ? ' · ' + LVL_SHORT[e.level] : ''}${e.type === 'time' ? ' · por tempo' : ''}</span></span></button>
-      ${e.mine || (e.shared && S.user.role !== 'aluno') ? raw(html`<span class="badge ${e.share === 'pendente' ? 'tone-warn' : e.share === 'recusado' ? 'tone-bad' : ''}" title="${e.share_note || ''}">${e.shared ? ({ pendente: 'aguardando gestor', recusado: 'recusado' }[e.share] || 'só a empresa') : 'meu'}</span><button class="icon-btn" data-act="ex-edit" data-id="${e.id}" aria-label="Editar">${raw(ICON.edit)}</button>`) : ''}</li>`))}</ul>${items.length > 120 ? '<p class="hint">Mostrando 120. Use a busca para achar os outros.</p>' : ''}` : '<p class="empty">Nenhum exercício encontrado.</p>';
+    const pages = Math.max(1, Math.ceil(items.length / PER));
+    LIB.page = Math.min(Math.max(1, LIB.page), pages);
+    const from = (LIB.page - 1) * PER, shown = items.slice(from, from + PER);
+    const pager = html`<div class="row between" style="margin:8px 0"><button class="btn sm" data-pg="-1" ${LIB.page <= 1 ? raw('disabled') : ''}>‹ Anterior</button><span class="small muted">Página ${LIB.page} de ${pages}</span><button class="btn sm" data-pg="1" ${LIB.page >= pages ? raw('disabled') : ''}>Próxima ›</button></div>`;
+    const rows = shown.map(e => raw(html`<li><button class="pick" data-act="ex-info" data-ex="${e.id}">${raw(mediaTag(e.media, e.name, 'thumb sm'))}<span class="grow"><span class="t">${e.name}</span><span class="s">${MUSCLE[e.muscle]} · ${EQUIP[e.equipment]}${e.level ? ' · ' + LVL_SHORT[e.level] : ''}${e.type === 'time' ? ' · por tempo' : ''}</span></span></button>
+      ${e.mine || (e.shared && S.user.role !== 'aluno') ? raw(html`<span class="badge ${e.share === 'pendente' ? 'tone-warn' : e.share === 'recusado' ? 'tone-bad' : ''}" title="${e.share_note || ''}">${e.shared ? ({ pendente: 'aguardando gestor', recusado: 'recusado' }[e.share] || 'só a empresa') : 'meu'}</span><button class="icon-btn" data-act="ex-edit" data-id="${e.id}" aria-label="Editar">${raw(ICON.edit)}</button>`) : ''}</li>`));
+    $('#lib-list').innerHTML = items.length ? html`<div class="row between" style="margin:0 0 4px"><p class="hint" style="margin:0"><b>${items.length}</b> ${items.length === 1 ? 'exercício' : 'exercícios'} · mostrando ${from + 1}–${from + shown.length}</p>${pages > 1 ? raw(html`<span class="row" style="gap:6px"><button class="btn sm" data-pg="-1" aria-label="Página anterior" ${LIB.page <= 1 ? raw('disabled') : ''}>‹</button><span class="small muted">${LIB.page}/${pages}</span><button class="btn sm" data-pg="1" aria-label="Próxima página" ${LIB.page >= pages ? raw('disabled') : ''}>›</button></span>`) : ''}</div><ul class="list">${rows}</ul>${pages > 1 ? raw(pager) : ''}` : '<p class="empty">Nenhum exercício encontrado.</p>';
+    $$('#lib-list [data-pg]').forEach(b => b.addEventListener('click', () => { LIB.page += +b.dataset.pg; draw(); $('#lib-q').scrollIntoView({ block: 'start', behavior: 'smooth' }); }));
   };
   draw();
-  $('#lib-q').addEventListener('input', e => { LIB.q = e.target.value; draw(); });
-  $$('[data-lm]').forEach(b => b.addEventListener('click', () => { LIB.muscle = b.dataset.lm; $$('[data-lm]').forEach(c => c.setAttribute('aria-pressed', c === b)); draw(); }));
-  $$('[data-le]').forEach(b => b.addEventListener('click', () => { LIB.env = b.dataset.le; $$('[data-le]').forEach(c => c.setAttribute('aria-pressed', c === b)); draw(); }));
+  $('#lib-q').addEventListener('input', e => { LIB.q = e.target.value; LIB.page = 1; draw(); });
+  $$('[data-lm]').forEach(b => b.addEventListener('click', () => { LIB.muscle = b.dataset.lm; LIB.page = 1; $$('[data-lm]').forEach(c => c.setAttribute('aria-pressed', c === b)); draw(); }));
+  $$('[data-le]').forEach(b => b.addEventListener('click', () => { LIB.env = b.dataset.le; LIB.page = 1; $$('[data-le]').forEach(c => c.setAttribute('aria-pressed', c === b)); draw(); }));
 }
 /** Campo de animação: mostra a atual (se houver) e deixa escolher um arquivo novo com pré-visualização. */
 const mediaField = cur => html`<div class="f">Animação do exercício
