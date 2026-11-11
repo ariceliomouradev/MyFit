@@ -102,3 +102,4 @@ textarea.mono{font-size:.75rem;word-break:break-all;resize:none}
 @media (max-width:520px){.grid2.f1{grid-template-columns:1fr}.grid2.f1>.f{margin-bottom:10px}}
 .btn.block{white-space:normal;line-height:1.25}.btn.block svg{flex:none}
 .btn.sm{white-space:nowrap}
+.auth .credit a{text-decoration:underline;text-underline-offset:3px;color:var(--ambar)}

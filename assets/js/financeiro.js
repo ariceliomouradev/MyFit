@@ -89,7 +89,7 @@ document.addEventListener('submit', e => {
  *  Telas de acesso: entrar, cadastro, esqueci a senha, redefinir
  * ===================================================================== */
 const authHead = (title, sub) => html`<img class="logo ${S.brand?.logo ? 'custom' : 'sm'}" src="${S.brand?.logo || 'assets/img/logo-icone.svg'}" alt="${S.brand?.app_name || ''}"><h1>${title}</h1><p class="sub">${sub}</p>`;
-const authFoot = () => ''; // o crédito do desenvolvedor mora só em Mais/Configurações
+const authFoot = () => html`<div class="credit">Desenvolvido por <a href="https://ariceliomoura.com.br/" target="_blank" rel="noopener">Aricelio Moura</a></div>`; // nas telas de acesso; dentro do app o crédito fica em Mais
 
 function authViewV3(mode, token = '') {
   if (mode === 'pending') return html`<div class="auth">
