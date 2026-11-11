@@ -8,3 +8,5 @@ uploads/exercicios/*
 uploads/marca/*
 !uploads/marca/.gitkeep
 
+
+storage/app.key

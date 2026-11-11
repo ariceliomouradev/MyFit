@@ -18,7 +18,10 @@ return [
   // ---- Pagamentos PIX pelo PagBank (opcional: sem isto o app funciona, só não cobra online) ----
   // env 'sandbox' = testes (dinheiro de mentira) · 'production' = valendo. O token de cada ambiente é diferente.
   // Gere em: sandbox -> https://portaldev.pagbank.com.br (aba Tokens) · produção -> conta PagBank > Vendas > Integrações > Gerar Token
-  // 'pagbank' => ['token' => 'COLE-O-TOKEN-AQUI', 'env' => 'sandbox'],
+  // 'pagbank' => ['token' => 'COLE-O-TOKEN-AQUI', 'env' => 'sandbox'],   // conta PagBank da PLATAFORMA (mensalidade das empresas e clientes diretos)
+  // Cada empresa conecta a PRÓPRIA conta em Financeiro > PagBank (o token dela fica cifrado no banco). A chave de cifra é criada sozinha em storage/app.key;
+  // se preferir, defina a sua (base64 de 32 bytes):  php -r "echo base64_encode(random_bytes(32));"
+  // 'app_key' => 'COLE-AQUI-32-BYTES-EM-BASE64',
 
   // ---- E-mail (usado na redefinição de senha) ----
   // RECOMENDADO: SMTP com uma caixa de e-mail de verdade. O remetente é a própria caixa, então SPF/DKIM do seu domínio valem e a mensagem chega.

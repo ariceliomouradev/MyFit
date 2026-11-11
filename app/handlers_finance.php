@@ -25,9 +25,9 @@ function pb_cfg(): ?array
 }
 
 /** Chamada autenticada ao PagBank. Devolve [status, json, texto]. */
-function pb_call(string $method, string $pathOrUrl, ?array $body = null): array
+function pb_call(string $method, string $pathOrUrl, ?array $body = null, ?array $acct = null): array
 {
-    $c = pb_cfg();
+    $c = $acct ?? pb_cfg();
     if (!$c) throw new RuntimeException('PagBank não configurado');
     $url = str_starts_with($pathOrUrl, 'http') ? $pathOrUrl : $c['base'] . $pathOrUrl;
     // só fala com o host do PagBank configurado (não segue links de respostas para outros endereços)
@@ -42,7 +42,7 @@ function pb_link(array $links, string $rel): ?string
 }
 
 /** Cria o pedido PIX no PagBank e devolve os dados que guardamos (id, texto copia-e-cola, imagem). */
-function pb_create_pix(array $pay, array $payer, string $taxId): array
+function pb_create_pix(array $pay, array $payer, string $taxId, ?array $acct = null): array
 {
     $amount = (int) $pay['amount_cents'];
     $exp = (new DateTimeImmutable('+30 minutes'))->format('c');
@@ -57,7 +57,7 @@ function pb_create_pix(array $pay, array $payer, string $taxId): array
     ];
     $base = app_url();
     if (str_starts_with($base, 'https://') && strlen($base . '/api/pagbank/webhook') <= 100) $body['notification_urls'] = [$base . '/api/pagbank/webhook'];
-    [$st, $json, $txt] = pb_call('POST', '/orders', $body);
+    [$st, $json, $txt] = pb_call('POST', '/orders', $body, $acct);
     if ($st < 200 || $st >= 300 || !is_array($json) || empty($json['id'])) {
         error_log('[meus-treinos] PagBank criar pedido: HTTP ' . $st . ' ' . mb_substr((string) $txt, 0, 400));
         throw new RuntimeException('PagBank recusou o pedido');
@@ -67,7 +67,7 @@ function pb_create_pix(array $pay, array $payer, string $taxId): array
     if (!$text) throw new RuntimeException('PagBank não devolveu o PIX');
     $qr = null;
     if ($b64 = pb_link($ch['links'] ?? [], 'QRCODE.BASE64')) {
-        try { [$qs, , $qt] = pb_call('GET', $b64); if ($qs === 200 && preg_match('/^[A-Za-z0-9+\/=\s]+$/', trim($qt)) && strlen($qt) < 400000) $qr = 'data:image/png;base64,' . preg_replace('/\s+/', '', $qt); } catch (Throwable) { /* sem imagem: o copia-e-cola basta */ }
+        try { [$qs, , $qt] = pb_call('GET', $b64, null, $acct); if ($qs === 200 && preg_match('/^[A-Za-z0-9+\/=\s]+$/', trim($qt)) && strlen($qt) < 400000) $qr = 'data:image/png;base64,' . preg_replace('/\s+/', '', $qt); } catch (Throwable) { /* sem imagem: o copia-e-cola basta */ }
     }
     return ['order_id' => (string) $json['id'], 'charge_id' => isset($ch['id']) ? (string) $ch['id'] : null, 'text' => (string) $text, 'qr' => $qr, 'expires' => date('Y-m-d H:i:s', strtotime($exp))];
 }
@@ -77,7 +77,9 @@ function pb_sync(array $pay): string
 {
     if (empty($pay['pb_order_id']) || $pay['status'] === 'pago') return $pay['status'];
     Db::run('UPDATE payments SET checked_at=? WHERE id=?', [now(), $pay['id']]);
-    try { [$st, $json] = pb_call('GET', '/orders/' . rawurlencode((string) $pay['pb_order_id'])); } catch (Throwable $e) { return $pay['status']; }
+    $acct = pb_account_for((string) $pay['kind'], $pay['company_id'] ? (int) $pay['company_id'] : null);
+    if (!$acct) return $pay['status'];
+    try { [$st, $json] = pb_call('GET', '/orders/' . rawurlencode((string) $pay['pb_order_id']), null, $acct); } catch (Throwable $e) { return $pay['status']; }
     if ($st !== 200 || !is_array($json)) return $pay['status'];
     // o pedido precisa ser mesmo o nosso: mesma referência e mesmo valor
     $match = null;
@@ -209,8 +211,9 @@ function pay_insert(array $payer, string $kind, array $plan, array $q, string $m
 /** Gera a cobrança PIX de uma renovação. */
 function pay_create_pix(array $payer, string $kind, array $plan, array $q, string $taxId, ?int $by = null): array
 {
-    if (!pb_cfg()) fail('O pagamento online ainda não foi ativado. Fale com a sua academia para pagar de outra forma.', 503);
     $cid = $payer['company_id'] ? (int) $payer['company_id'] : null;
+    $acct = pb_account_for($kind, $cid);
+    if (!$acct) fail($kind === 'aluno' ? 'A sua academia ainda não ativou o pagamento online. Fale com ela para pagar de outra forma.' : 'O pagamento online ainda não foi ativado. Fale com o gestor.', 503);
     if ((int) Db::val("SELECT COUNT(*) FROM payments WHERE user_id=? AND created_at > (NOW() - INTERVAL 1 HOUR)", [$payer['id']]) >= 10) fail('Muitas cobranças geradas. Aguarde um pouco e tente de novo.', 429);
     foreach (Db::all("SELECT id FROM payments WHERE user_id=? AND kind=? AND status='pendente'", [$payer['id'], $kind]) as $old) { // só uma cobrança aberta por pessoa
         Db::run("UPDATE payments SET status='cancelado' WHERE id=? AND status='pendente'", [$old['id']]);
@@ -223,7 +226,7 @@ function pay_create_pix(array $payer, string $kind, array $plan, array $q, strin
     }
     $pay = Db::one('SELECT * FROM payments WHERE id=?', [$id]);
     try {
-        $r = pb_create_pix($pay, $payer, $taxId);
+        $r = pb_create_pix($pay, $payer, $taxId, $acct);
     } catch (Throwable $e) {
         error_log('[meus-treinos] cobrança #' . $id . ': ' . $e->getMessage());
         Db::run("UPDATE payments SET status='falhou' WHERE id=?", [$id]);
@@ -244,7 +247,7 @@ function plan_options_for(array $payer): array
 function h_pay_options(array $p, array $u): void
 {
     if ($u['role'] === 'aluno') {
-        j(['kind' => 'aluno', 'enabled' => pb_cfg() !== null, 'access_until' => $u['access_until'], 'plans' => plan_options_for($u)]);
+        j(['kind' => 'aluno', 'enabled' => pb_account_for('aluno', (int) $u['company_id']) !== null, 'receiver' => company_kind((int) $u['company_id']) === 'direta' ? 'plataforma' : 'empresa', 'access_until' => $u['access_until'], 'plans' => plan_options_for($u)]);
     }
     if ($u['role'] === 'admin') {
         $c = Db::one('SELECT c.access_until, p.id plan_id, p.name plan_name, p.price_cents FROM companies c LEFT JOIN plans p ON p.id=c.plan_id WHERE c.id=?', [$u['company_id']]);
@@ -310,7 +313,7 @@ function h_pay_renew(array $p): void
     if (!$row || !$ok) fail('E-mail ou senha incorretos.', 401);
     if (!can_self_renew($row)) fail('Não é possível renovar por aqui. Fale com o seu personal ou com a sua academia.', 403);
     unset($row['password_hash']);
-    if (empty($in['plan_id'])) j(['enabled' => pb_cfg() !== null, 'name' => $row['name'], 'plans' => plan_options_for($row)]);
+    if (empty($in['plan_id'])) j(['enabled' => pb_account_for('aluno', $row['company_id'] ? (int) $row['company_id'] : null) !== null, 'name' => $row['name'], 'plans' => plan_options_for($row)]);
     $plan = Db::one('SELECT * FROM company_plans WHERE id=? AND company_id=? AND active=1', [(int) $in['plan_id'], $row['company_id']]);
     if (!$plan) fail('Escolha um plano.');
     j(['payment' => pay_create_pix($row, 'aluno', $plan, pay_quote($row, $plan), valid_tax_id($in['tax_id'] ?? ''))], 201);

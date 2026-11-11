@@ -258,7 +258,7 @@ route(/^#\/financeiro$/, async () => {
 });
 
 function finHtml() {
-  const tabs = [['painel', 'Painel'], ['planos', 'Planos'], ['indic', 'Indicações'], ['receber', 'Receber']];
+  const tabs = [['painel', 'Painel'], ['planos', 'Planos'], ['indic', 'Indicações'], ['receber', 'Receber'], ['conta', 'PagBank']];
   return html`${S.user.role === 'super' ? raw(backLink()) : ''}<div class="page-title"><div><div class="eyebrow">${S.user.role === 'super' ? 'Gestor geral' : 'Administrador'}</div><h1>Financeiro</h1></div>${S.user.role === 'admin' ? raw('<a class="btn sm" href="#/assinatura">Mensalidade da plataforma</a>') : ''}</div>
     ${S.user.role === 'super' ? raw(html`<label class="f">Empresa<select class="in" data-fin-company>${FIN.companies.map(c => raw(html`<option value="${c.id}" ${c.id === FIN.cid ? raw('selected') : ''}>${c.name}</option>`))}</select></label>`) : ''}
     <div class="seg" role="tablist">${tabs.map(([k, l]) => raw(html`<button role="tab" aria-selected="${FIN.tab === k}" data-act="fin-tab" data-t="${k}">${l}</button>`))}</div>
@@ -266,11 +266,12 @@ function finHtml() {
 }
 document.addEventListener('change', async e => {
   if (!e.target.matches?.('[data-fin-company]')) return;
-  FIN.cid = +e.target.value; render();
+  FIN.cid = +e.target.value; FIN.pb = null; render();
 });
 
 function finTab() {
   const d = FIN.d, t = d.totals;
+  if (FIN.tab === 'conta') return html`<div id="pb-box">${raw(FIN.pb ? pbHtml(FIN.pb) : '<p class="hint">Carregando…</p>')}</div>`;
   if (FIN.tab === 'planos') return html`
     <div class="row between" style="margin-bottom:8px"><p class="hint" style="margin:0">Você define o nome, a duração e o valor de cada plano que vende aos alunos.</p><button class="btn primary sm" data-act="cplan-edit" data-id="">${raw(ICON.plus)} Plano</button></div>
     ${FIN.plans.length ? raw(html`<div class="card"><ul class="list">${FIN.plans.map(p => raw(html`<li><div class="grow"><div class="t">${p.name} ${p.active ? '' : raw('<span class="badge tone-bad">desativado</span>')}</div><div class="s">${p.months} ${pl(p.months, 'mês', 'meses')} · ${money(p.monthly_cents)} por mês</div></div><b class="mono">${money(p.price_cents)}</b><button class="icon-btn" data-act="cplan-edit" data-id="${p.id}" aria-label="Editar ${p.name}">${raw(ICON.edit)}</button></li>`))}</ul></div>`) : raw('<div class="empty">Cadastre o primeiro plano (por exemplo Mensal, Trimestral, Anual) para os alunos pagarem pelo app.</div>')}`;
@@ -306,6 +307,29 @@ function finTab() {
     <div class="card"><h3>Comissões dos personais</h3>${d.commissions.length ? raw(html`<div class="row between pg-head"><p class="hint" style="margin:0">${raw(pgCount(cg, 'personal', 'personais'))}</p>${raw(pagerMini('finc', cg))}</div><ul class="list">${cg.slice.map(c => raw(html`<li><div class="grow"><div class="t">${c.name}</div><div class="s">${c.payments} pagamentos · já repassado ${money(c.paid)}</div></div><b class="mono">${money(c.pending)}</b>${c.pending > 0 ? raw(html`<button class="btn sm" data-act="fin-commission" data-id="${c.user_id}" data-n="${c.name}" data-v="${c.pending}">Repassar</button>`) : raw('<span class="badge tone-ok">em dia</span>')}</li>`))}</ul>${raw(pagerFull('finc', cg))}`) : raw('<p class="muted small" style="margin:0">Ainda não há comissões. Elas aparecem quando um aluno indicado por um personal paga uma renovação.</p>')}</div>
     <div class="day-h">Últimas cobranças</div>${raw(finRecent(d))}
     <details class="card"><summary><b>Como calculamos</b></summary><ul class="how" style="margin-top:8px"><li><b>Receita líquida</b> = receita bruta − descontos de indicação − comissões.</li><li><b>MRR</b> = soma do (valor pago ÷ meses do plano) de cada aluno com plano em vigor.</li><li><b>Vencidos no mês</b> = alunos que ficaram sem acesso neste mês ÷ (alunos com acesso + vencidos).</li><li><b>Crescimento</b> compara a receita líquida do mês com a do mês anterior.</li></ul></details>`;
+}
+/* ---------- PagBank da empresa (Fase 3): cada empresa recebe na própria conta ---------- */
+async function loadPb() {
+  try { FIN.pb = (await api('GET', `pagbank/company${finQs()}`)).pagbank; } catch (e) { toast(e.message, true); return; }
+  const box = $('#pb-box'); if (box && FIN.tab === 'conta') box.innerHTML = pbHtml(FIN.pb);
+}
+function pbHtml(p) {
+  const mine = S.user.role === 'admin';
+  if (p.receiver === 'plataforma') return html`<div class="card"><h3>Recebimento</h3><p class="hint" style="margin:0">Esta empresa recebe pela conta da plataforma: o dinheiro dos clientes diretos entra na conta PagBank do gestor geral. Não há o que conectar aqui.</p></div>`;
+  const state = p.connected
+    ? html`<div class="row wrap" style="gap:8px;margin-bottom:8px"><span class="badge tone-ok">Conectada</span><span class="badge">${p.env === 'production' ? 'Produção (dinheiro real)' : 'Testes (sandbox)'}</span><span class="badge">Token ••••${p.hint}</span>${p.connected_at ? raw(html`<span class="badge">desde ${fmtD(p.connected_at.slice(0, 10))}</span>`) : ''}</div>`
+    : html`<div class="row wrap" style="gap:8px;margin-bottom:8px"><span class="badge tone-warn">Não conectada</span>${p.broken ? raw('<span class="badge tone-bad">token ilegível: conecte de novo</span>') : ''}</div>`;
+  const form = mine ? html`<form data-form="pb-co" class="formv" autocomplete="off">
+      <label class="f">Ambiente<select class="in" name="env"><option value="sandbox" ${p.env !== 'production' ? raw('selected') : ''}>Testes (sandbox): pagamentos de mentira</option><option value="production" ${p.env === 'production' ? raw('selected') : ''}>Produção: dinheiro de verdade</option></select></label>
+      <label class="f">Token do PagBank<input class="in" type="password" name="token" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="200" required placeholder="${p.connected ? 'Cole um novo token para trocar' : 'Cole aqui o token inteiro'}"></label>
+      <button class="btn primary block" type="submit">${p.connected ? 'Trocar token' : 'Conectar conta PagBank'}</button></form>`
+    : html`<p class="hint" style="margin:0">Só o administrador da empresa conecta a conta PagBank dela.</p>`;
+  return html`<div class="card"><h3>Conta PagBank da empresa</h3>${raw(state)}
+      <p class="hint">O dinheiro dos alunos (PIX) cai <b>direto na conta PagBank da sua empresa</b>. A plataforma só cobra a mensalidade, na conta dela. O token é guardado cifrado e nunca aparece de novo na tela.</p>
+      ${raw(form)}
+      ${mine && p.connected ? raw(html`<div class="stack" style="margin-top:8px"><button class="btn block" data-act="pb-co-test">Testar conexão</button><button class="btn danger block" data-act="pb-co-del">Desconectar</button></div>`) : ''}</div>
+    <div class="card"><h3>Como conectar</h3><ol class="how"><li>No PagBank, abra a conta da empresa e gere um <b>token</b>: em produção, <b>Vendas › Integrações › Gerar token</b>; para testar, no portal de desenvolvedores (portaldev.pagbank.com.br), aba <b>Tokens</b>.</li><li>Escolha o ambiente (testes ou produção) e cole o token acima. O app confere o token com o PagBank antes de guardar.</li><li>Pronto: o aluno que tocar em "Pagar com PIX" gera a cobrança na sua conta. Para testar sem dinheiro, use primeiro o ambiente de testes.</li></ol>
+      ${p.https ? '' : raw('<div class="infobox"><span>O aviso automático do PagBank só funciona com endereço seguro (https). Sem ele, o app confere o pagamento quando o aluno abre a tela.</span></div>')}</div>`;
 }
 function simBRefresh() {
   const out = $('#simB-out'), form = $('form[data-form=fin-settings]'); if (!out || !form) return;
@@ -452,6 +476,11 @@ Object.assign(acts, {
     if (!await ask('Liberar o login de todos?', 'Apaga as tentativas de login erradas de todos os usuários desta empresa. Todos podem tentar entrar agora.', 'Liberar', { danger: false })) return;
     const r = await api('POST', 'manage/unlock', { company_id: (typeof TEAM !== 'undefined' && TEAM?.cid) || undefined }); toast('Liberado (' + r.released + ' registros).');
   }),
+  'pb-co-test': guard(async el => { el.disabled = true; try { const r = await api('POST', 'pagbank/company/test'); toast(r.ok ? 'Conexão com o PagBank funcionando.' : 'O PagBank respondeu com erro ' + r.status, !r.ok); } finally { el.disabled = false; } }),
+  'pb-co-del': guard(async () => {
+    if (!await ask('Desconectar o PagBank?', 'Os alunos deixam de poder pagar online até você conectar de novo. Cobranças já pagas não mudam; as pendentes só são confirmadas depois que você reconectar a mesma conta.', 'Desconectar')) return;
+    FIN.pb = (await api('DELETE', 'pagbank/company')).pagbank; toast('PagBank desconectado.'); $('#pb-box').innerHTML = pbHtml(FIN.pb);
+  }),
   'pw-gen': guard(async el => {
     const f = el.closest('form'); if (!f) return;
     const main = f.querySelector('[data-policy]'); if (!main) return;
@@ -475,7 +504,7 @@ Object.assign(acts, {
   'pay-done': () => { closeModal(); if (S.user) render(); else { authModeVal = 'login'; S.renew = null; renderAuth(); toast('Pronto! Agora é só entrar.'); } },
   'renew-open': guard(() => renewOpen()),
   'forgot-email': guard(async () => { const r = await api('POST', 'password/forgot', { email: S.forgotEmail }); S.forgotMsg = r.message; toast('Se o e-mail existir, enviamos o link de novo.'); }),
-  'fin-tab': el => { setTimeout(simBRefresh, 0); FIN.tab = el.dataset.t; $$('[data-act=fin-tab]').forEach(b => b.setAttribute('aria-selected', b === el)); $('#fin-body').innerHTML = finTab(); },
+  'fin-tab': el => { setTimeout(simBRefresh, 0); FIN.tab = el.dataset.t; $$('[data-act=fin-tab]').forEach(b => b.setAttribute('aria-selected', b === el)); $('#fin-body').innerHTML = finTab(); if (FIN.tab === 'conta') loadPb(); },
   'cplan-edit': el => {
     const p = FIN.plans.find(x => x.id == el.dataset.id) || { id: '', name: '', months: 1, price_cents: 0, active: true, cost_cents: 0, min_margin_pct: 40 };
     const direct = (FIN.companies || []).find(c => c.id === FIN.cid)?.kind === 'direta';
@@ -561,6 +590,10 @@ Object.assign(forms, {
     const body = { name: d.name, months: +d.months, price_cents: priceBody(d), active: f.dataset.id ? !!d.active : true, company_id: FIN.cid || undefined };
     if (d.cost !== undefined) { body.cost_cents = Math.max(0, toCents(d.cost || '0')) || 0; body.min_margin_pct = parseFloat(String(d.min_margin_pct || '40').replace(',', '.')); }
     const r = await api(f.dataset.id ? 'PUT' : 'POST', f.dataset.id ? `finance/plans/${f.dataset.id}` : 'finance/plans', body); FIN.plans = r.plans; closeModal(); toast('Plano salvo.'); render();
+  },
+  'pb-co': async (d, f) => {
+    const r = await api('PUT', 'pagbank/company', { token: String(d.token || '').trim(), env: d.env });
+    FIN.pb = r.pagbank; f.reset(); toast('Conta PagBank conectada.'); $('#pb-box').innerHTML = pbHtml(FIN.pb);
   },
   'fin-settings': async d => {
     const body = Object.fromEntries(Object.entries(d).map(([k, v]) => [k, parseFloat(String(v).replace(',', '.'))]));

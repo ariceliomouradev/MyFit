@@ -547,7 +547,7 @@ function h_exercise_media(array $p, array $u): void
 
 
 /* ---------- Registro de atividades ---------- */
-const AUDIT_TEXT = ['fotos_vistas' => 'viu as fotos', 'ficha_vista' => 'abriu a ficha', 'treino_editado' => 'editou o treino', 'personal_alterado' => 'trocou o personal', 'senha_redefinida' => 'redefiniu a senha',
+const AUDIT_TEXT = ['pagbank_conectado' => 'conectou a conta PagBank', 'pagbank_removido' => 'desconectou a conta PagBank', 'fotos_vistas' => 'viu as fotos', 'ficha_vista' => 'abriu a ficha', 'treino_editado' => 'editou o treino', 'personal_alterado' => 'trocou o personal', 'senha_redefinida' => 'redefiniu a senha',
     'status_alterado' => 'mudou o acesso para', 'validade_alterada' => 'mudou a validade', 'aprovado' => 'aprovou o cadastro', 'usuario_excluido' => 'excluiu',
     'exercicio_enviado' => 'enviou para aprovação', 'exercicio_aprovado' => 'aprovou na lista geral', 'exercicio_recusado' => 'recusou na lista geral',
     'pagamento' => 'pagamento confirmado', 'pagamento_manual' => 'registrou pagamento', 'comissao_repassada' => 'repassou comissão', 'senha_recuperada' => 'redefiniu a própria senha', 'envio_manual' => 'copiou o link de senha', 'login_liberado' => 'liberou as tentativas de login'];

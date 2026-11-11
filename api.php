@@ -16,6 +16,7 @@ require __DIR__ . '/app/handlers_eval.php';
 require __DIR__ . '/app/handlers_brand.php';
 require __DIR__ . '/app/notify.php';
 require __DIR__ . '/app/handlers_account.php';
+require __DIR__ . '/app/handlers_pbco.php';
 require __DIR__ . '/app/handlers_margin.php';
 require __DIR__ . '/app/handlers_direct.php';
 require __DIR__ . '/app/handlers_finance.php';
@@ -112,6 +113,10 @@ $routes = [
     ['POST',   'pagbank/webhook',            'h_pagbank_webhook',      false],
     ['GET',    'pagbank/status',             'h_pagbank_status',       true],
     ['POST',   'pagbank/test',               'h_pagbank_test',         true],
+    ['GET',    'pagbank/company',            'h_pbco_get',             true],
+    ['PUT',    'pagbank/company',            'h_pbco_put',             true],
+    ['DELETE', 'pagbank/company',            'h_pbco_delete',          true],
+    ['POST',   'pagbank/company/test',       'h_pbco_test',            true],
 
     ['GET',    'routines',                   'h_routines',             true],
     ['POST',   'routines',                   'h_routine_create',       true],
