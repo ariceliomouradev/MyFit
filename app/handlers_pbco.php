@@ -142,3 +142,66 @@ function h_pbco_test(array $p, array $u): void
     if ($st === 401 || $st === 403) fail('O PagBank recusou o token guardado. Gere um novo e conecte de novo.', 422);
     j(['ok' => $st >= 200 && $st < 300, 'status' => $st]);
 }
+
+/* ---------- conta PagBank da PLATAFORMA (mensalidade das empresas e clientes diretos): o gestor geral conecta em Mais ---------- */
+function pbp_get(string $k): ?string
+{
+    try { $v = Db::val('SELECT v FROM platform_settings WHERE k=?', [$k]); } catch (Throwable) { return null; }
+    return $v === false || $v === null ? null : (string) $v;
+}
+function pbp_set(string $k, string $v): void
+{
+    Db::run('INSERT INTO platform_settings (k,v,updated_at) VALUES (?,?,?) ON DUPLICATE KEY UPDATE v=VALUES(v), updated_at=VALUES(updated_at)', [$k, $v, now()]);
+}
+/** Conta da plataforma guardada no banco (token cifrado), ou null. */
+function pb_platform_db(): ?array
+{
+    $enc = pbp_get('pb_token_enc'); if (!$enc) return null;
+    $token = secret_decrypt($enc); if ($token === null || $token === '') return null;
+    $env = pbp_get('pb_env') === 'production' ? 'production' : 'sandbox';
+    $over = cfg('pagbank'); $base = is_array($over) && !empty($over['base_url']) ? (string) $over['base_url'] : ($env === 'production' ? 'https://api.pagseguro.com' : 'https://sandbox.api.pagseguro.com');
+    return ['token' => $token, 'env' => $env, 'base' => rtrim($base, '/'), 'card' => false, 'debit' => false];
+}
+function pbplat_status(): array
+{
+    $c = pb_cfg(); $fromApp = pb_platform_db() !== null; $app = app_url();
+    return ['connected' => $c !== null, 'source' => $c === null ? null : ($fromApp ? 'app' : 'config'), 'env' => $c['env'] ?? (pbp_get('pb_env') ?: 'sandbox'),
+            'hint' => $fromApp ? pbp_get('pb_hint') : null, 'connected_at' => $fromApp ? iso(pbp_get('pb_connected_at')) : null,
+            'broken' => !empty(pbp_get('pb_token_enc')) && !$fromApp, 'card' => !empty($c['card']), 'debit' => !empty($c['debit']),
+            'webhook_url' => $app ? $app . '/api/pagbank/webhook' : null, 'https' => str_starts_with($app, 'https://'),
+            'pending' => (int) Db::val("SELECT COUNT(*) FROM payments WHERE status='pendente' AND method<>'manual'"), 'paid' => (int) Db::val("SELECT COUNT(*) FROM payments WHERE status='pago' AND method<>'manual'")];
+}
+function h_pbplat_get(array $p, array $u): void { require_role($u, 'super'); j(['pagbank' => pbplat_status()]); }
+function h_pbplat_put(array $p, array $u): void
+{
+    require_role($u, 'super');
+    throttle_marker('__pbplat__', 20);
+    $in = body();
+    $token = is_string($in['token'] ?? null) ? trim($in['token']) : '';
+    $env = ($in['env'] ?? 'sandbox') === 'production' ? 'production' : 'sandbox';
+    if (!preg_match('/^[A-Za-z0-9._\-]{16,200}$/', $token)) fail('O token do PagBank parece incompleto. Copie o token inteiro, sem espaços.', 422);
+    $over = cfg('pagbank'); $base = is_array($over) && !empty($over['base_url']) ? (string) $over['base_url'] : ($env === 'production' ? 'https://api.pagseguro.com' : 'https://sandbox.api.pagseguro.com');
+    $st = pbco_probe(['token' => $token, 'env' => $env, 'base' => rtrim($base, '/'), 'owner' => 'plataforma']);
+    if ($st === 0) fail('Não consegui falar com o PagBank agora (rede ou endereço). Tente de novo em instantes.', 502);
+    if ($st === 401 || $st === 403) fail('O PagBank recusou o token. Confira se é o token certo para o ambiente escolhido (testes ou produção).', 422);
+    if ($st < 200 || $st >= 300) fail('O PagBank respondeu com erro ' . $st . '. Tente de novo em instantes.', 502);
+    try { $enc = secret_encrypt($token); } catch (Throwable $e) { error_log('[meus-treinos] cifra do token da plataforma: ' . $e->getMessage()); fail('Não consegui guardar o token com segurança. Avise o suporte.', 500); }
+    pbp_set('pb_token_enc', $enc); pbp_set('pb_env', $env); pbp_set('pb_hint', substr($token, -4)); pbp_set('pb_connected_at', now());
+    audit($u, (int) $u['id'], 'pagbank_plataforma_conectada', $env === 'production' ? 'produção' : 'testes');
+    j(['pagbank' => pbplat_status()]);
+}
+function h_pbplat_delete(array $p, array $u): void
+{
+    require_role($u, 'super');
+    Db::run("DELETE FROM platform_settings WHERE k IN ('pb_token_enc','pb_hint','pb_connected_at')");
+    audit($u, (int) $u['id'], 'pagbank_plataforma_removida');
+    j(['pagbank' => pbplat_status()]);
+}
+function h_pbplat_methods(array $p, array $u): void
+{
+    require_role($u, 'super');
+    $in = body();
+    pbp_set('pb_card', !empty($in['card']) ? '1' : '0'); pbp_set('pb_debit', !empty($in['debit']) ? '1' : '0');
+    audit($u, (int) $u['id'], 'pagbank_cartao', 'plataforma: ' . ((!empty($in['card']) ? 'crédito ' : '') . (!empty($in['debit']) ? 'débito' : '') ?: 'desligado'));
+    j(['pagbank' => pbplat_status()]);
+}

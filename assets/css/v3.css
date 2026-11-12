@@ -103,3 +103,5 @@ textarea.mono{font-size:.75rem;word-break:break-all;resize:none}
 .btn.block{white-space:normal;line-height:1.25}.btn.block svg{flex:none}
 .btn.sm{white-space:nowrap}
 .auth .credit a{text-decoration:underline;text-underline-offset:3px;color:var(--ambar)}
+select.in,.in{max-width:100%;min-width:0;box-sizing:border-box}
+.card h3{overflow-wrap:break-word}

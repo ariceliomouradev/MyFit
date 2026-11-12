@@ -31,20 +31,39 @@ function contrast_ratio(string $a, string $b): float
 
 function brand_key(?int $cid): string { return $cid ? 'c' . $cid : 'global'; }
 
-/** Marca que vale para quem está no nível $cid (null = visitante ou sem empresa). */
+/** A empresa tem identidade própria (academia ou personal solo)? Os "Clientes diretos" usam a marca da plataforma. */
+function brand_own_company(?int $cid): bool { return $cid && company_kind($cid) !== 'direta'; }
+
+/**
+ * Marca que vale para quem está no nível $cid (null = visitante ou sem empresa).
+ * Quem é de uma empresa vê o NOME e a LOGO da própria empresa (sem logo, o ícone padrão), nunca os do gestor geral;
+ * as cores e o slogan, se a empresa não definir, vêm da plataforma.
+ */
 function brand_effective(?int $cid): array
 {
+    $own = brand_own_company($cid);
     $keys = $cid ? ['global', brand_key($cid)] : ['global'];
     $rows = [];
     foreach (Db::all('SELECT * FROM brandings WHERE scope_key IN (' . implode(',', array_fill(0, count($keys), '?')) . ')', $keys) as $r) $rows[$r['scope_key']] = $r;
     $b = BRAND_DEFAULT;
     foreach ($keys as $k) {
-        foreach (['app_name', 'slogan', 'accent', 'bg', 'logo'] as $f) if (isset($rows[$k][$f]) && $rows[$k][$f] !== '') $b[$f] = $rows[$k][$f];
+        foreach (['app_name', 'slogan', 'accent', 'bg', 'logo'] as $f) {
+            if ($own && $k === 'global' && in_array($f, ['app_name', 'logo'], true)) continue;
+            if (isset($rows[$k][$f]) && $rows[$k][$f] !== '') $b[$f] = $rows[$k][$f];
+        }
     }
+    if ($own && empty($rows[brand_key($cid)]['app_name'])) $b['app_name'] = (string) Db::val('SELECT name FROM companies WHERE id=?', [$cid]);
     $logoRow = null;
-    foreach (array_reverse($keys) as $k) if (!empty($rows[$k]['logo'])) { $logoRow = $rows[$k]; break; }
+    foreach (array_reverse($keys) as $k) { if ($own && $k === 'global') continue; if (!empty($rows[$k]['logo'])) { $logoRow = $rows[$k]; break; } }
     $b['logo'] = $logoRow ? brand_logo_url($logoRow['logo'], $logoRow['updated_at']) : null;
     return $b;
+}
+/** O que a empresa herda quando deixa um campo em branco (nome da própria empresa, sem logo; cores da plataforma). */
+function brand_parent(?int $cid): array
+{
+    $g = brand_effective(null);
+    if (!brand_own_company($cid)) return $g;
+    return ['app_name' => (string) Db::val('SELECT name FROM companies WHERE id=?', [$cid]), 'logo' => null] + $g;
 }
 function brand_logo_url(string $file, string $updated): string { return 'uploads/marca/' . basename($file) . '?v=' . strtotime($updated); }
 
@@ -66,7 +85,7 @@ function h_brand_get(array $p, array $u): void
        'raw' => ['app_name' => $row['app_name'] ?? null, 'slogan' => $row['slogan'] ?? null, 'accent' => $row['accent'] ?? null, 'bg' => $row['bg'] ?? null,
                  'logo' => !empty($row['logo']) ? brand_logo_url($row['logo'], $row['updated_at']) : null],
        'effective' => brand_effective($cid),
-       'parent' => $cid ? brand_effective(null) : BRAND_DEFAULT]);
+       'parent' => $cid ? brand_parent($cid) : BRAND_DEFAULT]);
 }
 
 function h_brand_save(array $p, array $u): void
@@ -97,7 +116,7 @@ function h_brand_save(array $p, array $u): void
     $bg = $color('bg', 'A cor de fundo');
 
     // valida a combinação que vai valer de fato (herdando o que a empresa não definiu)
-    $parent = $cid ? brand_effective(null) : BRAND_DEFAULT;
+    $parent = $cid ? brand_parent($cid) : BRAND_DEFAULT;
     $effAccent = $accent ?? $parent['accent'];
     $effBg = $bg ?? $parent['bg'];
     if (hex_lum($effBg) > 0.12) fail('O fundo precisa ser escuro (o app tem tema escuro). Escolha uma cor mais escura.');

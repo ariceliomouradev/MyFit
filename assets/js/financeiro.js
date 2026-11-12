@@ -263,7 +263,7 @@ route(/^#\/financeiro$/, async () => {
 });
 
 function finHtml() {
-  const tabs = [['painel', 'Painel'], ['planos', 'Planos'], ['indic', 'Indicações'], ['receber', 'Receber'], ['conta', 'PagBank']];
+  const tabs = [['painel', 'Painel'], ['planos', 'Planos'], ['indic', 'Indicações'], ['receber', 'Receber']];
   return html`${S.user.role === 'super' ? raw(backLink()) : ''}<div class="page-title"><div><div class="eyebrow">${S.user.role === 'super' ? 'Gestor geral' : 'Administrador'}</div><h1>Financeiro</h1></div>${S.user.role === 'admin' ? raw('<a class="btn sm" href="#/assinatura">Mensalidade da plataforma</a>') : ''}</div>
     ${S.user.role === 'super' ? raw(html`<label class="f">Empresa<select class="in" data-fin-company>${FIN.companies.map(c => raw(html`<option value="${c.id}" ${c.id === FIN.cid ? raw('selected') : ''}>${c.name}</option>`))}</select></label>`) : ''}
     <div class="seg" role="tablist">${tabs.map(([k, l]) => raw(html`<button role="tab" aria-selected="${FIN.tab === k}" data-act="fin-tab" data-t="${k}">${l}</button>`))}</div>
@@ -325,7 +325,7 @@ function pbHtml(p) {
     ? html`<div class="row wrap" style="gap:8px;margin-bottom:8px"><span class="badge tone-ok">Conectada</span><span class="badge">${p.env === 'production' ? 'Produção (dinheiro real)' : 'Testes (sandbox)'}</span><span class="badge">Token ••••${p.hint}</span>${p.connected_at ? raw(html`<span class="badge">desde ${fmtD(p.connected_at.slice(0, 10))}</span>`) : ''}</div>`
     : html`<div class="row wrap" style="gap:8px;margin-bottom:8px"><span class="badge tone-warn">Não conectada</span>${p.broken ? raw('<span class="badge tone-bad">token ilegível: conecte de novo</span>') : ''}</div>`;
   const form = mine ? html`<form data-form="pb-co" class="formv" autocomplete="off">
-      <label class="f">Ambiente<select class="in" name="env"><option value="sandbox" ${p.env !== 'production' ? raw('selected') : ''}>Testes (sandbox): pagamentos de mentira</option><option value="production" ${p.env === 'production' ? raw('selected') : ''}>Produção: dinheiro de verdade</option></select></label>
+      <label class="f">Ambiente<select class="in" name="env"><option value="sandbox" ${p.env !== 'production' ? raw('selected') : ''}>Testes (sandbox)</option><option value="production" ${p.env === 'production' ? raw('selected') : ''}>Produção (dinheiro real)</option></select></label>
       <label class="f">Token do PagBank<input class="in" type="password" name="token" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="200" required placeholder="${p.connected ? 'Cole um novo token para trocar' : 'Cole aqui o token inteiro'}"></label>
       <button class="btn primary block" type="submit">${p.connected ? 'Trocar token' : 'Conectar conta PagBank'}</button></form>`
     : html`<p class="hint" style="margin:0">Só o administrador da empresa conecta a conta PagBank dela.</p>`;
@@ -380,7 +380,7 @@ function pltTab() {
     <div class="card"><h3>Como ler</h3><ul class="how"><li><b>Entra por mês</b> = mensalidades dos planos já com os descontos em vigor.</li><li><b>Sobra</b> = o que entra menos o custo por conta de cada plano.</li><li>Os números ficam mais fiéis depois que você preenche o custo por conta em cada plano.</li></ul></div>`;
   if (PLTAB === 'indic') return html`<div class="card"><h3>Empresa indica empresa</h3>
       <p class="hint">O desconto sai do <b>seu</b> bolso e nunca passa de <b>${fmtNum(mx, 0)}%</b> do preço do plano (somando tudo), nem do teto de margem do plano, o que for menor. O que a empresa dá aos alunos é com ela.</p>
-      <form data-form="platform-rules"><div class="grid2">
+      <form data-form="platform-rules"><div class="grid2 f1">
         <label class="f">Desconto de quem foi indicado (%)<input class="in" name="b2b_referred_pct" inputmode="decimal" value="${st.b2b_referred_pct}" required><span class="hint">Máximo ${fmtNum(mx, 0)}%.</span></label>
         <label class="f">Por quantos meses<input class="in" name="b2b_referred_months" inputmode="numeric" value="${st.b2b_referred_months}" required></label>
         <label class="f">Desconto de quem indicou (%)<input class="in" name="b2b_referrer_pct" inputmode="decimal" value="${st.b2b_referrer_pct}" required><span class="hint">Por empresa indicada. Máximo ${fmtNum(mx, 0)}%.</span></label>
@@ -426,7 +426,7 @@ function extraMais() {
   const r = S.user.role;
   const link = (h, ic, t, s) => html`<a class="card linkcard" href="${h}"><span class="ic">${raw(ICON[ic])}</span><span class="grow"><b>${t}</b><span class="small muted" style="display:block">${s}</span></span><span class="chev">›</span></a>`;
   if (r === 'aluno') return html`${raw(link('#/assinatura', 'wallet', 'Minha assinatura', S.user.access_until ? 'Acesso até ' + fmtD(S.user.access_until) + '. Renovar com PIX.' : 'Renovar com PIX'))}${raw(link('#/indicar', 'gift', 'Indicar amigos', 'Ganhe desconto na renovação'))}`;
-  if (r === 'admin') return html`${raw(link('#/marca', 'palette', 'Marca da empresa', 'Logo, nome, slogan e cores'))}<div id="outbox-box"></div>`;
+  if (r === 'admin') return html`${raw(link('#/marca', 'palette', 'Marca da empresa', 'Logo, nome, slogan e cores'))}<div id="pb-box"></div><div id="outbox-box"></div>`;
   if (r === 'super') return html`${raw(link('#/gestor/usuarios', 'users', 'Todos os usuários', 'Contatos e acessos'))}${raw(link('#/exercicios', 'dumb', 'Exercícios', 'Lista geral do app'))}${raw(link('#/financeiro', 'wallet', 'Financeiro das empresas', 'Receita, comissões e planos'))}<div id="pb-box"></div><div id="mail-box"></div><div id="outbox-box"></div>`;
   return '';
 }
@@ -438,13 +438,36 @@ function supportCard() {
 async function mountMais() {
   if (S.user.role === 'super' && $('#pb-box')) {
     try {
-      const s = await api('GET', 'pagbank/status');
+      const [s, pl2] = await Promise.all([api('GET', 'pagbank/status'), api('GET', 'pagbank/platform')]);
+      PLAT.pb = pl2.pagbank;
       $('#mail-box').innerHTML = html`<div class="card"><h3>E-mail</h3><ul class="list sum"><li><span class="muted">Envio</span><b>${s.mail === 'smtp' ? 'SMTP (recomendado)' : s.mail === 'desligado' ? 'desligado' : 'mail() da hospedagem (pode não entregar)'}</b></li></ul><button class="btn block" data-act="mail-test" style="margin-top:10px">Enviar e-mail de teste para mim</button></div>`;
-      $('#pb-box').innerHTML = html`<div class="card"><h3>PagBank (PIX)</h3><ul class="list sum"><li><span class="muted">Conexão</span><b>${s.configured ? 'configurada (' + (s.env === 'production' ? 'produção' : 'testes/sandbox') + ')' : 'sem token no config.php'}</b></li><li><span class="muted">Endereço do app (app_url)</span><b>${s.app_url || 'não definido'}</b></li><li><span class="muted">Aviso automático (webhook)</span><b>${s.https ? 'ativo' : 'precisa de https'}</b></li><li><span class="muted">PIX pagos / aguardando</span><b>${s.paid} / ${s.pending}</b></li></ul>
-        <button class="btn block" data-act="pb-test" style="margin-top:10px">Testar conexão com o PagBank</button></div>`;
+      $('#pb-box').innerHTML = pbPlatHtml(PLAT.pb);
     } catch { /* sem painel */ }
   }
+  if (S.user.role === 'admin' && $('#pb-box')) {
+    try { FIN.pb = (await api('GET', 'pagbank/company')).pagbank; $('#pb-box').innerHTML = pbHtml(FIN.pb); } catch { /* sem painel */ }
+  }
   if (S.user.role !== 'aluno' && S.user.role !== 'personal' && $('#outbox-box')) loadOutbox();
+}
+/* ---------- PagBank da PLATAFORMA (gestor geral): mensalidade das empresas e clientes diretos ---------- */
+const PLAT = { pb: null };
+function pbPlatHtml(p) {
+  const state = p.connected
+    ? html`<div class="row wrap" style="gap:8px;margin-bottom:8px"><span class="badge tone-ok">Conectada</span><span class="badge">${p.env === 'production' ? 'Produção (dinheiro real)' : 'Testes (sandbox)'}</span>${p.source === 'app' ? raw(html`<span class="badge">Token ••••${p.hint}</span>`) : raw('<span class="badge">token do config.php</span>')}${p.connected_at ? raw(html`<span class="badge">desde ${fmtD(p.connected_at.slice(0, 10))}</span>`) : ''}</div>`
+    : html`<div class="row wrap" style="gap:8px;margin-bottom:8px"><span class="badge tone-warn">Não conectada</span>${p.broken ? raw('<span class="badge tone-bad">token ilegível: conecte de novo</span>') : ''}</div>`;
+  return html`<div class="card"><h3>Receber das empresas e dos clientes diretos (PagBank)</h3>${raw(state)}
+      <p class="hint">Esta é a conta <b>da plataforma</b>: a mensalidade das empresas e o pagamento dos clientes diretos (alunos avulsos e personais solo) caem aqui. O dinheiro dos alunos de cada academia cai na conta da própria academia. O token é guardado cifrado e nunca aparece de novo.</p>
+      <form data-form="pb-plat" class="formv" autocomplete="off">
+        <label class="f">Ambiente<select class="in" name="env"><option value="sandbox" ${p.env !== 'production' ? raw('selected') : ''}>Testes (sandbox)</option><option value="production" ${p.env === 'production' ? raw('selected') : ''}>Produção (dinheiro real)</option></select></label>
+        <label class="f">Token do PagBank<input class="in" type="password" name="token" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="200" required placeholder="${p.source === 'app' ? 'Cole um novo token para trocar' : 'Cole aqui o token inteiro'}"></label>
+        <button class="btn primary block" type="submit">${p.source === 'app' ? 'Trocar token' : 'Conectar conta PagBank'}</button></form>
+      ${p.connected ? raw(html`<form data-form="pb-plat-methods" class="formv" style="margin-top:12px"><h4 style="margin:0 0 6px">Formas de pagamento</h4><p class="small muted" style="margin:0 0 8px">O PIX está sempre ligado. O cartão é digitado na página do PagBank.</p>
+        <label class="row" style="gap:8px;margin-bottom:6px"><input type="checkbox" name="card" ${p.card ? raw('checked') : ''}> Cartão de crédito (à vista)</label>
+        <label class="row" style="gap:8px;margin-bottom:8px"><input type="checkbox" name="debit" ${p.debit ? raw('checked') : ''}> Cartão de débito <span class="small muted">(precisa estar liberado na sua conta PagBank)</span></label>
+        <button class="btn block" type="submit">Salvar formas de pagamento</button></form>
+        <div class="stack" style="margin-top:8px"><button class="btn block" data-act="pb-test">Testar conexão</button>${p.source === 'app' ? raw('<button class="btn danger block" data-act="pb-plat-del">Desconectar</button>') : ''}</div>`) : ''}
+      <ul class="list sum" style="margin-top:10px"><li><span class="muted">Aviso automático (webhook)</span><b>${p.https ? 'ativo' : 'precisa de https'}</b></li><li><span class="muted">Pagos / aguardando</span><b>${p.paid} / ${p.pending}</b></li></ul></div>
+    <div class="card"><h3>Como conectar</h3><ol class="how"><li>No PagBank, gere um <b>token</b>: em produção, <b>Vendas › Integrações › Gerar token</b>; para testar, no portal de desenvolvedores (portaldev.pagbank.com.br), aba <b>Tokens</b>.</li><li>Escolha o ambiente, cole o token acima e conecte. O app confere o token no PagBank antes de guardar.</li><li>Personais e alunos de uma academia <b>não pagam a plataforma</b>: o aluno paga a academia, e o personal da academia é funcionário. Só pagam à plataforma as empresas, os clientes diretos e os personais solo.</li></ol></div>`;
 }
 /** Links de senha que o e-mail não entregou: o administrador copia o link e manda à pessoa. */
 async function loadOutbox() {
@@ -577,6 +600,10 @@ Object.assign(acts, {
     if (!await ask('Enviar para a lista geral?', 'O gestor geral vai analisar. Se aprovar, o exercício passa a aparecer para todas as academias.', 'Enviar para aprovação', { danger: false })) return;
     await api('POST', `company/exercises/${el.dataset.id}/submit`); closeModal(); await loadExercises(true); toast('Enviado para aprovação.'); render();
   }),
+  'pb-plat-del': guard(async () => {
+    if (!await ask('Desconectar o PagBank da plataforma?', 'A mensalidade das empresas e os clientes diretos deixam de poder pagar online (se o config.php tiver um token, ele volta a valer).', 'Desconectar')) return;
+    PLAT.pb = (await api('DELETE', 'pagbank/platform')).pagbank; toast('PagBank da plataforma desconectado.'); $('#pb-box').innerHTML = pbPlatHtml(PLAT.pb);
+  }),
   'pb-test': guard(async () => { const r = await api('POST', 'pagbank/test'); toast(r.ok ? 'Conexão com o PagBank funcionando.' : 'O PagBank respondeu com erro ' + r.status, !r.ok); }),
   'outbox-copy': guard(async el => { await copyText(el.dataset.v, 'Link copiado. Envie à pessoa e ele some da fila.'); await api('POST', `manage/outbox/${el.dataset.id}/done`); setTimeout(loadOutbox, 600); }),
   'mail-test': guard(async el => { el.disabled = true; try { const r = await api('POST', 'mail/test'); toast(r.ok ? `E-mail de teste enviado para ${r.to} (${r.mode}). Confira a caixa de entrada e o spam.` : `Falhou: ${r.error}`, !r.ok); } finally { el.disabled = false; } }),
@@ -604,6 +631,14 @@ Object.assign(forms, {
     const body = { name: d.name, months: +d.months, price_cents: priceBody(d), active: f.dataset.id ? !!d.active : true, company_id: FIN.cid || undefined };
     if (d.cost !== undefined) { body.cost_cents = Math.max(0, toCents(d.cost || '0')) || 0; body.min_margin_pct = parseFloat(String(d.min_margin_pct || '40').replace(',', '.')); }
     const r = await api(f.dataset.id ? 'PUT' : 'POST', f.dataset.id ? `finance/plans/${f.dataset.id}` : 'finance/plans', body); FIN.plans = r.plans; closeModal(); toast('Plano salvo.'); render();
+  },
+  'pb-plat': async (d, f) => {
+    const r = await api('PUT', 'pagbank/platform', { token: String(d.token || '').trim(), env: d.env });
+    PLAT.pb = r.pagbank; f.reset(); toast('Conta PagBank da plataforma conectada.'); $('#pb-box').innerHTML = pbPlatHtml(PLAT.pb);
+  },
+  'pb-plat-methods': async d => {
+    const r = await api('PUT', 'pagbank/platform/methods', { card: !!d.card, debit: !!d.debit });
+    PLAT.pb = r.pagbank; toast('Formas de pagamento salvas.'); $('#pb-box').innerHTML = pbPlatHtml(PLAT.pb);
   },
   'pb-co': async (d, f) => {
     const r = await api('PUT', 'pagbank/company', { token: String(d.token || '').trim(), env: d.env });

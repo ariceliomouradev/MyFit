@@ -17,11 +17,16 @@ declare(strict_types=1);
 /* ---------- PagBank ---------- */
 function pb_cfg(): ?array
 {
-    $c = cfg('pagbank');
-    if (!is_array($c) || empty($c['token'])) return null;
-    $env = ($c['env'] ?? 'sandbox') === 'production' ? 'production' : 'sandbox';
-    $base = !empty($c['base_url']) ? (string) $c['base_url'] : ($env === 'production' ? 'https://api.pagseguro.com' : 'https://sandbox.api.pagseguro.com');
-    return ['token' => (string) $c['token'], 'env' => $env, 'base' => rtrim($base, '/'), 'card' => !empty($c['card']), 'debit' => !empty($c['debit'])];
+    $a = function_exists('pb_platform_db') ? pb_platform_db() : null; // conectado dentro do app (Mais > PagBank)
+    if (!$a) {
+        $c = cfg('pagbank');
+        if (!is_array($c) || empty($c['token'])) return null;
+        $env = ($c['env'] ?? 'sandbox') === 'production' ? 'production' : 'sandbox';
+        $base = !empty($c['base_url']) ? (string) $c['base_url'] : ($env === 'production' ? 'https://api.pagseguro.com' : 'https://sandbox.api.pagseguro.com');
+        $a = ['token' => (string) $c['token'], 'env' => $env, 'base' => rtrim($base, '/'), 'card' => !empty($c['card']), 'debit' => !empty($c['debit'])];
+    }
+    foreach (['card' => 'pb_card', 'debit' => 'pb_debit'] as $f => $k) { $v = pbp_get($k); if ($v !== null) $a[$f] = $v === '1'; }
+    return $a;
 }
 
 /** Chamada autenticada ao PagBank. Devolve [status, json, texto]. */
